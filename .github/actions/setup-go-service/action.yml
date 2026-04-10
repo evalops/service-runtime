@@ -1,0 +1,37 @@
+name: Setup Go Service
+description: Set up Go and configure EvalOps module resolution for shared service repos.
+
+inputs:
+  go-version-file:
+    description: Path to the go.mod file used to select the Go version.
+    required: false
+    default: go.mod
+  working-directory:
+    description: Directory where go mod download should run.
+    required: false
+    default: .
+  download:
+    description: Whether to run go mod download after configuring Go.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+
+    - name: Configure EvalOps Go module resolution
+      shell: bash
+      run: |
+        echo "GOPRIVATE=github.com/evalops/*" >> "$GITHUB_ENV"
+        echo "GONOSUMDB=github.com/evalops/*" >> "$GITHUB_ENV"
+        echo "GOPROXY=direct" >> "$GITHUB_ENV"
+
+    - name: Download Go modules
+      if: ${{ inputs.download == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: go mod download
