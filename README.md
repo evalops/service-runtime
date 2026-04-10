@@ -1,12 +1,225 @@
 # Service Runtime
 
-Shared Go runtime helpers for EvalOps services.
+`service-runtime` is the shared Go runtime layer for EvalOps services.
 
-Current scope:
-- startup retry helpers
+It exists to remove repeated startup/bootstrap code from service repos without
+pulling business logic into a central package. The module is intentionally
+narrow: it handles dependency bring-up and retry behavior, not routes, schemas,
+domain models, or product logic.
+
+## Scope
+
+Current shared concerns:
+
+- startup retry primitives
 - PostgreSQL bootstrap helpers for `database/sql`
 - Redis bootstrap helpers
 - `pgxpool` bootstrap helpers
 
-This module is intentionally narrow. It is for service startup and dependency
-wiring, not business-domain code.
+Current non-goals:
+
+- HTTP routing
+- auth middleware
+- metrics endpoints
+- domain-specific store methods
+- SQL schema ownership
+- service-specific logging policy
+
+## Packages
+
+### `startup`
+
+Generic retry helpers for service startup paths.
+
+Main entry points:
+
+- `startup.Do(ctx, cfg, fn)`
+- `startup.Value[T](ctx, cfg, fn)`
+
+Config:
+
+- `MaxAttempts`
+- `Delay`
+
+Defaults:
+
+- `startup.DefaultMaxAttempts`
+- `startup.DefaultDelay`
+
+Use this package directly when a service needs retry behavior but still wants
+to own the actual bootstrap logic and logging. This is the pattern used by
+`gate`, where the service wants retry logs around each failed database attempt.
+
+```go
+value, err := startup.Value(ctx, startup.Config{
+	MaxAttempts: 30,
+	Delay:       2 * time.Second,
+}, func(ctx context.Context) (*Thing, error) {
+	return openThing(ctx)
+})
+```
+
+### `postgres`
+
+Helpers for opening and validating `database/sql` PostgreSQL connections.
+
+Main entry points:
+
+- `postgres.Open(ctx, databaseURL, opts)`
+- `postgres.OpenAndInit(ctx, databaseURL, init, opts)`
+
+Use `OpenAndInit` when a service needs to run bootstrap logic after the DB is
+reachable, such as:
+
+- schema creation
+- store construction that depends on a live DB handle
+- lightweight startup validation
+
+Example:
+
+```go
+db, err := postgres.OpenAndInit(ctx, databaseURL, func(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, schema); err != nil {
+		return fmt.Errorf("init_schema: %w", err)
+	}
+	return nil
+}, postgres.Options{})
+```
+
+This is the pattern used by `memory`, `meter`, and `audit`.
+
+### `redisutil`
+
+Helpers for opening and validating Redis clients with startup retry.
+
+Main entry point:
+
+- `redisutil.Open(ctx, redisURL, opts)`
+
+Example:
+
+```go
+client, err := redisutil.Open(ctx, redisURL, redisutil.Options{})
+if err != nil {
+	return nil, err
+}
+```
+
+This is the pattern used by `registry` and `identity`.
+
+### `pgxpoolutil`
+
+Helpers for services that want a validated `pgxpool.Pool` directly rather than
+going through `database/sql`.
+
+Main entry point:
+
+- `pgxpoolutil.Open(ctx, dsn, opts)`
+
+Optional hooks:
+
+- `Configure` for mutating parsed pool config before connect
+- `PingTimeout`
+- retry config via `startup.Config`
+
+Example:
+
+```go
+pool, err := pgxpoolutil.Open(ctx, dsn, pgxpoolutil.Options{
+	Configure: func(cfg *pgxpool.Config) error {
+		cfg.MaxConns = 20
+		return nil
+	},
+})
+```
+
+## Consumption
+
+Add the module to a consumer repo:
+
+```bash
+go get github.com/evalops/service-runtime@latest
+```
+
+Import only the package you need:
+
+```go
+import (
+	runtimepostgres "github.com/evalops/service-runtime/postgres"
+	runtimeredis "github.com/evalops/service-runtime/redisutil"
+	runtimestartup "github.com/evalops/service-runtime/startup"
+)
+```
+
+## Integration Guidance
+
+Use the shared module when:
+
+- multiple services are carrying the same startup retry loop
+- the logic is about dependency bring-up, not request handling
+- behavior should be consistent across services
+
+Keep logic local when:
+
+- the code is domain-specific
+- a service has distinct operational semantics
+- the shared abstraction would erase useful service-level logging or policy
+
+Good pattern:
+
+- keep the service-specific behavior at the edges
+- use `service-runtime` for the boring bootstrap mechanics underneath
+
+That is why `gate` uses `startup.Value(...)` directly instead of a one-size
+fits-all database helper: it keeps control-plane retry logging while still
+reusing the shared retry semantics.
+
+## CI and Image Builds
+
+`service-runtime` is public so other EvalOps repos can consume it without
+introducing a separate cross-repo credentials flow just for Go module fetches.
+
+If a consuming repo also depends on other private `evalops` modules, keep the
+standard Go module environment in CI and builder images:
+
+```bash
+GOPRIVATE=github.com/evalops/*
+GONOSUMDB=github.com/evalops/*
+GOPROXY=direct
+```
+
+That pattern is now in the first adoption wave across:
+
+- `memory`
+- `registry`
+- `identity`
+- `gate`
+- `meter`
+- `audit`
+
+## Design Rules
+
+When adding new shared helpers here:
+
+- prefer narrow packages over a monolithic runtime package
+- share bootstrap mechanics, not product behavior
+- keep function signatures explicit
+- make retry and timeout behavior configurable
+- keep tests hermetic; hook package-level seams only when necessary
+- do not centralize service logging policy unless every consumer wants the same behavior
+
+## Repository Layout
+
+```text
+startup/       Retry primitives
+postgres/      database/sql PostgreSQL bootstrap
+redisutil/     Redis bootstrap
+pgxpoolutil/   pgxpool bootstrap
+```
+
+## Local Validation
+
+```bash
+go test ./... -count=1
+go build ./...
+```
