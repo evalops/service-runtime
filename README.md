@@ -15,11 +15,13 @@ Current shared concerns:
 - PostgreSQL bootstrap helpers for `database/sql`
 - Redis bootstrap helpers
 - `pgxpool` bootstrap helpers
+- mTLS client/server bootstrap helpers
+- Identity token introspection client bootstrap
 
 Current non-goals:
 
 - HTTP routing
-- auth middleware
+- auth middleware policy
 - metrics endpoints
 - domain-specific store methods
 - SQL schema ownership
@@ -133,6 +135,59 @@ pool, err := pgxpoolutil.Open(ctx, dsn, pgxpoolutil.Options{
 })
 ```
 
+### `mtls`
+
+Helpers for the shared EvalOps mTLS contract.
+
+Main entry points:
+
+- `mtls.BuildServerTLSConfig(cfg)`
+- `mtls.BuildClientTLSConfig(cfg)`
+- `mtls.BuildHTTPClient(cfg)`
+- `mtls.RequireVerifiedClientCertificate(...)`
+- `mtls.RequireVerifiedClientCertificateForIdentities(...)`
+
+Use this package when a service needs the same client/server TLS file-path
+contract that `memory`, `registry`, `meter`, and `audit` share today.
+
+Example:
+
+```go
+httpClient, err := mtls.BuildHTTPClient(mtls.ClientConfig{
+	CAFile:     cfg.IdentityTLS.CAFile,
+	CertFile:   cfg.IdentityTLS.CertFile,
+	KeyFile:    cfg.IdentityTLS.KeyFile,
+	ServerName: cfg.IdentityTLS.ServerName,
+})
+```
+
+### `identityclient`
+
+Helpers for talking to the shared `identity` service introspection endpoint.
+
+Main entry points:
+
+- `identityclient.NewClient(introspectURL, requestTimeout, httpClient)`
+- `identityclient.NewMTLSClient(introspectURL, requestTimeout, tlsConfig)`
+
+Use `NewMTLSClient` when a service follows the standard Identity client TLS
+contract and does not need to hand-build an HTTP client first.
+
+Example:
+
+```go
+identityClient, err := identityclient.NewMTLSClient(
+	cfg.IdentityIntrospectURL,
+	cfg.IdentityRequestTimeout,
+	mtls.ClientConfig{
+		CAFile:     cfg.IdentityTLS.CAFile,
+		CertFile:   cfg.IdentityTLS.CertFile,
+		KeyFile:    cfg.IdentityTLS.KeyFile,
+		ServerName: cfg.IdentityTLS.ServerName,
+	},
+)
+```
+
 ## Consumption
 
 Add the module to a consumer repo:
@@ -174,6 +229,10 @@ That is why `gate` uses `startup.Value(...)` directly instead of a one-size
 fits-all database helper: it keeps control-plane retry logging while still
 reusing the shared retry semantics.
 
+The same rule applies to `identityclient`: it centralizes the boring
+introspection transport and error mapping, while services still keep their own
+scope checks and request-level auth behavior locally.
+
 ## CI and Image Builds
 
 `service-runtime` is public so other EvalOps repos can consume it without
@@ -197,6 +256,40 @@ That pattern is now in the first adoption wave across:
 - `meter`
 - `audit`
 
+This repo now also publishes the shared bootstrap artifacts that consumers can
+reuse directly.
+
+### GitHub Actions bootstrap
+
+Use the composite action:
+
+```yaml
+- uses: evalops/service-runtime/.github/actions/setup-go-service@main
+```
+
+That action:
+
+- installs the Go version declared by `go.mod`
+- exports `GOPRIVATE=github.com/evalops/*`
+- exports `GONOSUMDB=github.com/evalops/*`
+- exports `GOPROXY=direct`
+- optionally runs `go mod download`
+
+### Shared Go builder image
+
+The shared builder image is published from
+`images/go-service-builder/Dockerfile` to:
+
+```text
+ghcr.io/evalops/service-runtime-go-builder:go1.25
+```
+
+A typical consumer Dockerfile can then start with:
+
+```dockerfile
+FROM ghcr.io/evalops/service-runtime-go-builder:go1.25 AS builder
+```
+
 ## Design Rules
 
 When adding new shared helpers here:
@@ -215,6 +308,9 @@ startup/       Retry primitives
 postgres/      database/sql PostgreSQL bootstrap
 redisutil/     Redis bootstrap
 pgxpoolutil/   pgxpool bootstrap
+mtls/          Shared mTLS client/server helpers
+identityclient/ Shared Identity introspection client
+images/        Shared builder image definitions
 ```
 
 ## Local Validation
