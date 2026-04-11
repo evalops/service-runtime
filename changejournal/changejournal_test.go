@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestWriteMutationWithDollarPlaceholders(t *testing.T) {
@@ -165,6 +166,62 @@ func TestWriteMutationMarshalErrors(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "marshal_audit_metadata") {
 		t.Fatalf("expected metadata marshal error, got %v", err)
+	}
+}
+
+func TestWriteMutationMarshalsProtoPayloadWithTypeURL(t *testing.T) {
+	t.Parallel()
+
+	db, mock := newMockDB(t)
+	templates := Templates(PlaceholderDollar)
+	now := time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC)
+
+	mock.ExpectExec(quoteQuery(templates.InsertAuditEntry)).
+		WithArgs(
+			"audit-3",
+			"org-123",
+			"service",
+			nil,
+			"deal.update",
+			"deal",
+			"deal-1",
+			"null",
+			now,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(quoteQuery(templates.InsertChangeJournal)).
+		WithArgs(
+			"org-123",
+			"deal",
+			"deal-1",
+			"update",
+			"service",
+			nil,
+			int64(1),
+			now,
+			`{"@type":"type.googleapis.com/google.protobuf.StringValue", "value":"d-1"}`,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(12))
+
+	sequence, err := WriteMutationWithOptions(
+		context.Background(),
+		db,
+		Actor{Type: "service", OrganizationID: "org-123"},
+		"deal",
+		"deal-1",
+		"update",
+		wrapperspb.String("d-1"),
+		nil,
+		WriteOptions{
+			Now:   func() time.Time { return now },
+			NewID: func() string { return "audit-3" },
+		},
+	)
+	if err != nil {
+		t.Fatalf("write mutation: %v", err)
+	}
+	if sequence != 12 {
+		t.Fatalf("expected sequence 12, got %d", sequence)
 	}
 }
 

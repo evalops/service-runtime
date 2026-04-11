@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 const (
@@ -22,17 +25,19 @@ var (
 	errNATSURLRequired       = errors.New("nats_url_required")
 	errStreamNameRequired    = errors.New("stream_name_required")
 	errSubjectPrefixRequired = errors.New("subject_prefix_required")
+	errPayloadMessageNil     = errors.New("payload_message_nil")
+	errPayloadTargetNil      = errors.New("payload_target_nil")
 )
 
 type Change struct {
-	Sequence         int64           `json:"sequence"`
-	TenantID         string          `json:"tenant_id"`
-	AggregateType    string          `json:"aggregate_type"`
-	AggregateID      string          `json:"aggregate_id,omitempty"`
-	Operation        string          `json:"operation"`
-	AggregateVersion int64           `json:"aggregate_version,omitempty"`
-	RecordedAt       time.Time       `json:"recorded_at"`
-	Payload          json.RawMessage `json:"payload"`
+	Sequence         int64      `json:"sequence"`
+	TenantID         string     `json:"tenant_id"`
+	AggregateType    string     `json:"aggregate_type"`
+	AggregateID      string     `json:"aggregate_id,omitempty"`
+	Operation        string     `json:"operation"`
+	AggregateVersion int64      `json:"aggregate_version,omitempty"`
+	RecordedAt       time.Time  `json:"recorded_at"`
+	Payload          *anypb.Any `json:"payload,omitempty"`
 }
 
 type CloudEvent struct {
@@ -143,7 +148,11 @@ func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
 	}
 
 	subject := change.subject(publisher.subjectPrefix)
-	envelope := change.toCloudEvent(subject, publisher.source)
+	envelope, err := change.toCloudEvent(subject, publisher.source)
+	if err != nil {
+		publisher.loggerOrDefault().Error("failed to marshal change payload", "error", err, "seq", change.Sequence)
+		return
+	}
 
 	payload, err := json.Marshal(envelope)
 	if err != nil {
@@ -187,14 +196,44 @@ func (opts Options) natsOptions() []nats.Option {
 	return options
 }
 
+func NewPayload(message proto.Message) (*anypb.Any, error) {
+	if message == nil {
+		return nil, errPayloadMessageNil
+	}
+	return anypb.New(message)
+}
+
+func MustPayload(message proto.Message) *anypb.Any {
+	payload, err := NewPayload(message)
+	if err != nil {
+		panic(err)
+	}
+	return payload
+}
+
+func UnmarshalPayload(payload *anypb.Any, target proto.Message) error {
+	if target == nil {
+		return errPayloadTargetNil
+	}
+	if payload == nil {
+		return nil
+	}
+	return payload.UnmarshalTo(target)
+}
+
 func (change Change) subject(prefix string) string {
 	return fmt.Sprintf("%s.%s.%s", strings.TrimSuffix(prefix, "."), change.AggregateType, change.Operation)
 }
 
-func (change Change) toCloudEvent(subject, source string) CloudEvent {
+func (change Change) toCloudEvent(subject, source string) (CloudEvent, error) {
 	recordedAt := change.RecordedAt.UTC()
 	if recordedAt.IsZero() {
 		recordedAt = time.Now().UTC()
+	}
+
+	data, err := marshalPayloadJSON(change.Payload)
+	if err != nil {
+		return CloudEvent{}, err
 	}
 
 	return CloudEvent{
@@ -205,8 +244,8 @@ func (change Change) toCloudEvent(subject, source string) CloudEvent {
 		Time:            recordedAt.Format(time.RFC3339),
 		DataContentType: "application/json",
 		TenantID:        change.TenantID,
-		Data:            change.Payload,
-	}
+		Data:            data,
+	}, nil
 }
 
 func (publisher *Publisher) loggerOrDefault() *slog.Logger {
@@ -222,4 +261,16 @@ func eventSource(subjectPrefix string) string {
 		return strings.TrimSuffix(trimmed, ".changes")
 	}
 	return trimmed
+}
+
+func marshalPayloadJSON(payload *anypb.Any) (json.RawMessage, error) {
+	if payload == nil {
+		return json.RawMessage("null"), nil
+	}
+
+	data, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(data), nil
 }
