@@ -269,7 +269,7 @@ Use the composite action:
 
 That action:
 
-- installs the Go version declared by `go.mod`
+- installs the Go version declared by `go.mod`, or an explicit `go-version` override
 - exports `GOPRIVATE=github.com/evalops/*`
 - exports `GONOSUMDB=github.com/evalops/*`
 - exports `GOPROXY=direct`
@@ -277,6 +277,7 @@ That action:
 
 Useful knobs:
 
+- `go-version` when CI intentionally tracks a newer toolchain than the repo `go.mod`
 - `go-version-file` when the repo keeps Go code in a subdirectory such as `chat/backend`
 - `working-directory` to run `go mod download` outside the repo root
 - `cache=false` when a workflow manages its own Go cache, such as sharded `cerebro` jobs
@@ -307,7 +308,14 @@ Useful knobs:
 - `build-args` is accepted as a deprecated alias to keep older callers from
   silently dropping overrides
 - `platforms` for multi-arch publishes
+- `setup_qemu=true` when a workflow needs QEMU for multi-arch image builds
 - `metadata_tags` when a repo needs a non-default tagging contract
+
+Outputs:
+
+- `tags` for downstream release notes or artifact manifests
+- `labels` for metadata-sensitive follow-up steps
+- `digest` for signing, attestation, or SBOM generation
 
 ### GitHub Actions local image builds
 
@@ -328,6 +336,7 @@ Useful knobs:
 
 - `target` for multi-stage smoke builds
 - `build_args` for test-time builder overrides
+- `setup_qemu=true` when the CI build itself is multi-arch
 - `load` if a later step needs the built image in the local Docker daemon
 
 `build-args` is also accepted here as a deprecated alias so a caller typo does
