@@ -31,4 +31,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Verify builder image
-        run: docker build -f images/go-service-builder/Dockerfile -t service-runtime-go-builder:test .
+        uses: ./.github/actions/build-docker-image
+        with:
+          dockerfile: images/go-service-builder/Dockerfile
+          tags: service-runtime-go-builder:test
