@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type PlaceholderStyle int
@@ -83,7 +86,7 @@ func WriteMutationWithOptions(ctx context.Context, tx DBTX, actor Actor, resourc
 	if err != nil {
 		return 0, fmt.Errorf("marshal_audit_metadata: %w", err)
 	}
-	payloadJSON, err := json.Marshal(payload)
+	payloadJSON, err := marshalPayload(payload)
 	if err != nil {
 		return 0, fmt.Errorf("marshal_change_payload: %w", err)
 	}
@@ -226,4 +229,19 @@ func nullableString(value string) any {
 		return nil
 	}
 	return value
+}
+
+func marshalPayload(payload any) ([]byte, error) {
+	switch value := payload.(type) {
+	case *anypb.Any:
+		return protojson.MarshalOptions{UseProtoNames: true}.Marshal(value)
+	case proto.Message:
+		typedPayload, err := anypb.New(value)
+		if err != nil {
+			return nil, err
+		}
+		return protojson.MarshalOptions{UseProtoNames: true}.Marshal(typedPayload)
+	default:
+		return json.Marshal(payload)
+	}
 }
