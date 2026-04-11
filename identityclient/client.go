@@ -21,11 +21,16 @@ var (
 
 type IntrospectionResult struct {
 	Active         bool     `json:"active"`
+	AgentType      string   `json:"agent_type,omitempty"`
+	Capabilities   []string `json:"capabilities,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
+	RunID          string   `json:"run_id,omitempty"`
 	Scopes         []string `json:"scopes,omitempty"`
 	Service        string   `json:"service,omitempty"`
 	Subject        string   `json:"subject,omitempty"`
+	Surface        string   `json:"surface,omitempty"`
 	TokenType      string   `json:"token_type,omitempty"`
+	UserSubject    string   `json:"user_subject,omitempty"`
 }
 
 type Client struct {
