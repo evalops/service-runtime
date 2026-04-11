@@ -19,11 +19,11 @@ Current shared concerns:
 - Identity token introspection client bootstrap
 - HTTP request/response helpers and standard endpoints
 - service-scoped Prometheus metrics and request observability helpers
+- auth middleware primitives for bearer tokens, API keys, and actor context
 
 Current non-goals:
 
 - domain-specific route trees
-- auth middleware policy
 - domain-specific store methods
 - SQL schema ownership
 - service-specific logging policy
@@ -230,6 +230,24 @@ Main entry points:
 Use this package when a service wants the shared Prometheus metric names and
 per-request logging/metadata pattern without hard-coding those collectors in
 its API package.
+
+### `authmw`
+
+Helpers for shared bearer-token and API-key request authorization without
+owning a service's token backend.
+
+Main entry points:
+
+- `authmw.New(config)`
+- `middleware.WithAuth(scopes...)`
+- `authmw.ActorFromContext(ctx)`
+- `authmw.HasAllScopes(available, required)`
+- `authmw.BearerToken(header)`
+
+Use this package when a service wants the shared `Authorization` parsing,
+API-key scope checks, actor context injection, and transport-level auth
+middleware shape while still keeping token verification and API-key lookup in
+service-owned backends.
 
 ## Consumption
 
