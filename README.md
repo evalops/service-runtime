@@ -296,8 +296,34 @@ Useful knobs:
 
 - `target` for multi-stage Dockerfiles such as `gate`
 - `build_args` for publish-time overrides such as `GO_BUILDER_IMAGE`
+- `build-args` is accepted as a deprecated alias to keep older callers from
+  silently dropping overrides
 - `platforms` for multi-arch publishes
 - `metadata_tags` when a repo needs a non-default tagging contract
+
+### GitHub Actions local image builds
+
+Use the shared non-push build action when a repo wants a standard smoke-build
+step in CI without repeating raw `docker build` commands:
+
+```yaml
+- uses: evalops/service-runtime/.github/actions/build-docker-image@main
+  with:
+    dockerfile: ./Dockerfile
+    target: connector
+    tags: gate-connector:test
+    build_args: |
+      GO_BUILDER_IMAGE=golang:1.25-alpine
+```
+
+Useful knobs:
+
+- `target` for multi-stage smoke builds
+- `build_args` for test-time builder overrides
+- `load` if a later step needs the built image in the local Docker daemon
+
+`build-args` is also accepted here as a deprecated alias so a caller typo does
+not silently revert to the default builder image.
 
 ### Shared Go builder image
 
