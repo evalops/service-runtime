@@ -20,12 +20,8 @@ Current shared concerns:
 - HTTP request/response helpers and standard endpoints
 - service-scoped Prometheus metrics and request observability helpers
 - auth middleware primitives for bearer tokens, API keys, and actor context
-<<<<<<< HEAD
 - atomic audit-entry and change-journal mutation recording
-||||||| parent of aec8dbd ([service-runtime] add idempotency package)
-=======
 - idempotent mutation middleware and Postgres-backed replay storage
->>>>>>> aec8dbd ([service-runtime] add idempotency package)
 - NATS JetStream CloudEvents publishing primitives
 
 Current non-goals:
