@@ -1,0 +1,81 @@
+name: Publish GHCR Image
+description: Build and optionally push a Docker image to GHCR with shared metadata and Buildx setup.
+
+inputs:
+  image_name:
+    description: Fully-qualified image name, for example ghcr.io/evalops/service-runtime-go-builder
+    required: true
+  github_actor:
+    description: GitHub actor used for GHCR login
+    required: true
+  github_token:
+    description: Token used for GHCR login
+    required: true
+  context:
+    description: Docker build context
+    required: false
+    default: .
+  dockerfile:
+    description: Path to the Dockerfile
+    required: true
+  target:
+    description: Optional Docker target stage
+    required: false
+    default: ""
+  build_args:
+    description: Optional newline-delimited Docker build args
+    required: false
+    default: ""
+  metadata_tags:
+    description: Optional newline-delimited docker/metadata-action tags
+    required: false
+    default: |
+      type=ref,event=branch
+      type=ref,event=pr
+      type=sha,prefix=sha-
+      type=raw,value=latest,enable={{is_default_branch}}
+  platforms:
+    description: Target platforms for docker buildx
+    required: false
+    default: linux/amd64
+  push:
+    description: Whether to push the built image
+    required: false
+    default: "false"
+  load:
+    description: Whether to load the built image into the local Docker daemon
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Log in to GHCR
+      if: ${{ inputs.push == 'true' }}
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ inputs.github_actor }}
+        password: ${{ inputs.github_token }}
+
+    - name: Extract image metadata
+      id: meta
+      uses: docker/metadata-action@v6
+      with:
+        images: ${{ inputs.image_name }}
+        tags: ${{ inputs.metadata_tags }}
+
+    - name: Build image
+      uses: docker/build-push-action@v7
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile }}
+        target: ${{ inputs.target }}
+        build-args: ${{ inputs.build_args }}
+        platforms: ${{ inputs.platforms }}
+        push: ${{ inputs.push == 'true' }}
+        load: ${{ inputs.load == 'true' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}

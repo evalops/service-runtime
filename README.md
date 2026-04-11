@@ -275,6 +275,30 @@ That action:
 - exports `GOPROXY=direct`
 - optionally runs `go mod download`
 
+### GitHub Actions image publishing
+
+Use the shared GHCR publish action when a repo wants the standard EvalOps
+metadata, Buildx setup, and GHCR login flow without re-copying the same steps
+into every workflow:
+
+```yaml
+- uses: evalops/service-runtime/.github/actions/publish-ghcr-image@main
+  with:
+    image_name: ghcr.io/evalops/my-service
+    github_actor: ${{ github.actor }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+    dockerfile: ./Dockerfile
+    push: ${{ github.event_name != 'pull_request' }}
+    load: ${{ github.event_name == 'pull_request' }}
+```
+
+Useful knobs:
+
+- `target` for multi-stage Dockerfiles such as `gate`
+- `build_args` for publish-time overrides such as `GO_BUILDER_IMAGE`
+- `platforms` for multi-arch publishes
+- `metadata_tags` when a repo needs a non-default tagging contract
+
 ### Shared Go builder image
 
 The shared builder image is published from
