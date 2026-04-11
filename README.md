@@ -17,12 +17,13 @@ Current shared concerns:
 - `pgxpool` bootstrap helpers
 - mTLS client/server bootstrap helpers
 - Identity token introspection client bootstrap
+- HTTP request/response helpers and standard endpoints
+- service-scoped Prometheus metrics and request observability helpers
 
 Current non-goals:
 
-- HTTP routing
+- domain-specific route trees
 - auth middleware policy
-- metrics endpoints
 - domain-specific store methods
 - SQL schema ownership
 - service-specific logging policy
@@ -187,6 +188,48 @@ identityClient, err := identityclient.NewMTLSClient(
 	},
 )
 ```
+
+### `httpkit`
+
+Helpers for shared HTTP request handling primitives without owning a service's
+route tree.
+
+Main entry points:
+
+- `httpkit.WriteJSON(writer, status, value)`
+- `httpkit.WriteError(writer, status, code, message)`
+- `httpkit.WriteMutationJSON(writer, status, payload, sequence)`
+- `httpkit.DecodeJSON(writer, request, value)`
+- `httpkit.PathUUID(writer, raw, name)`
+- `httpkit.RequireIfMatchVersion(writer, request)`
+- `httpkit.WithRequestID(next)`
+- `httpkit.WithMaxBodySize(maxBytes)`
+- `httpkit.WithRequestLogging(logger)`
+- `httpkit.HealthHandler(service)`
+- `httpkit.ReadyHandler(ping)`
+- `httpkit.MetricsHandler()`
+
+Use this package when a service wants the shared JSON error shape, request ID
+behavior, health endpoints, and optimistic concurrency helpers without copying
+the same router utilities into every repo.
+
+### `observability`
+
+Helpers for service-scoped HTTP metrics, DB stats collectors, and request-level
+wide event state.
+
+Main entry points:
+
+- `observability.NewMetrics(serviceName, opts)`
+- `observability.RegisterDBStats(serviceName, statFunc, opts)`
+- `observability.RequestLoggingMiddleware(logger, metrics)`
+- `observability.NewWideEvent(name, category, resourceType, action)`
+- `observability.SetWideEvent(request, event)`
+- `observability.AddWideEventAttributes(request, attributes)`
+
+Use this package when a service wants the shared Prometheus metric names and
+per-request logging/metadata pattern without hard-coding those collectors in
+its API package.
 
 ## Consumption
 
