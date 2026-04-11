@@ -6,6 +6,18 @@ inputs:
     description: Path to the go.mod file used to select the Go version.
     required: false
     default: go.mod
+  cache:
+    description: Whether actions/setup-go should enable its built-in module cache.
+    required: false
+    default: "true"
+  cache-dependency-path:
+    description: Optional dependency file path passed through to actions/setup-go cache resolution.
+    required: false
+    default: ""
+  check-latest:
+    description: Whether actions/setup-go should check for the latest matching Go patch release.
+    required: false
+    default: "false"
   working-directory:
     description: Directory where go mod download should run.
     required: false
@@ -22,6 +34,9 @@ runs:
       uses: actions/setup-go@v6
       with:
         go-version-file: ${{ inputs.go-version-file }}
+        cache: ${{ inputs.cache }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+        check-latest: ${{ inputs.check-latest }}
 
     - name: Configure EvalOps Go module resolution
       shell: bash

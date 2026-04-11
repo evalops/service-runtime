@@ -275,6 +275,14 @@ That action:
 - exports `GOPROXY=direct`
 - optionally runs `go mod download`
 
+Useful knobs:
+
+- `go-version-file` when the repo keeps Go code in a subdirectory such as `chat/backend`
+- `working-directory` to run `go mod download` outside the repo root
+- `cache=false` when a workflow manages its own Go cache, such as sharded `cerebro` jobs
+- `cache-dependency-path` when the `go.sum` file is not at repo root
+- `check-latest=true` when a repo intentionally tracks the latest patch release in CI
+
 ### GitHub Actions image publishing
 
 Use the shared GHCR publish action when a repo wants the standard EvalOps
