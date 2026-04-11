@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestConnectWithOptionsCreatesConfiguredStream(t *testing.T) {
@@ -89,7 +90,7 @@ func TestPublishChangeWrapsCloudEvent(t *testing.T) {
 		AggregateType: "deal",
 		Operation:     "create",
 		RecordedAt:    time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
-		Payload:       json.RawMessage(`{"deal_id":"d-1"}`),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
 	}
 
 	fake := publisher.js.(*fakeJetStream)
@@ -112,8 +113,15 @@ func TestPublishChangeWrapsCloudEvent(t *testing.T) {
 	if event.TenantID != "org-123" {
 		t.Fatalf("unexpected tenant %q", event.TenantID)
 	}
-	if string(event.Data) != `{"deal_id":"d-1"}` {
-		t.Fatalf("unexpected event data %q", string(event.Data))
+	var data map[string]any
+	if err := json.Unmarshal(event.Data, &data); err != nil {
+		t.Fatalf("decode event data: %v", err)
+	}
+	if data["@type"] != "type.googleapis.com/google.protobuf.StringValue" {
+		t.Fatalf("unexpected event data type %#v", data["@type"])
+	}
+	if data["value"] != "d-1" {
+		t.Fatalf("unexpected event data value %#v", data["value"])
 	}
 }
 
@@ -133,7 +141,7 @@ func TestPublishChangeLogsPublishErrors(t *testing.T) {
 		TenantID:      "org-123",
 		AggregateType: "deal",
 		Operation:     "update",
-		Payload:       json.RawMessage(`{"deal_id":"d-1"}`),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
 	})
 
 	if !bytes.Contains(logs.Bytes(), []byte("failed to publish change event")) {
@@ -146,6 +154,39 @@ func TestNoopPublisher(t *testing.T) {
 
 	var publisher ChangePublisher = NoopPublisher{}
 	publisher.PublishChange(context.Background(), Change{})
+}
+
+func TestNewPayloadAndUnmarshalPayload(t *testing.T) {
+	t.Parallel()
+
+	payload, err := NewPayload(wrapperspb.String("d-1"))
+	if err != nil {
+		t.Fatalf("new payload: %v", err)
+	}
+
+	target := &wrapperspb.StringValue{}
+	if err := UnmarshalPayload(payload, target); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if target.Value != "d-1" {
+		t.Fatalf("unexpected target value %q", target.Value)
+	}
+}
+
+func TestNewPayloadRejectsNilMessage(t *testing.T) {
+	t.Parallel()
+
+	if _, err := NewPayload(nil); !errors.Is(err, errPayloadMessageNil) {
+		t.Fatalf("expected errPayloadMessageNil, got %v", err)
+	}
+}
+
+func TestUnmarshalPayloadRejectsNilTarget(t *testing.T) {
+	t.Parallel()
+
+	if err := UnmarshalPayload(MustPayload(wrapperspb.String("d-1")), nil); !errors.Is(err, errPayloadTargetNil) {
+		t.Fatalf("expected errPayloadTargetNil, got %v", err)
+	}
 }
 
 type fakeJetStream struct {

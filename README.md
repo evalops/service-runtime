@@ -272,7 +272,8 @@ Supporting types:
 
 Use this package when a service wants one shared write path for mutation
 auditing and event-sourcing records instead of re-implementing the same insert
-sequence and payload marshaling in each store package.
+sequence and payload marshaling in each store package. Protobuf payloads are
+stored as proto-JSON so the journal stays queryable.
 
 ### `idempotency`
 
@@ -307,11 +308,15 @@ Main entry points:
 - `natsbus.ConnectWithOptions(ctx, natsURL, streamName, subjectPrefix, opts)`
 - `publisher.PublishChange(ctx, change)`
 - `publisher.Close()`
+- `natsbus.NewPayload(message)`
+- `natsbus.UnmarshalPayload(payload, target)`
 - `natsbus.NoopPublisher`
 
 Use this package when a service wants the shared stream bootstrap and event
 envelope contract for change notifications without duplicating JetStream setup
-and subject formatting in each repo.
+and subject formatting in each repo. `Change.Payload` carries a typed
+`google.protobuf.Any`, and the published CloudEvents `data` field stays JSON by
+using the protobuf JSON encoding with the embedded `@type` URL.
 ## Consumption
 
 Add the module to a consumer repo:
