@@ -37,7 +37,7 @@ func TestIntrospectSuccess(t *testing.T) {
 			t.Fatalf("unexpected authorization header: %q", got)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"active":true,"organization_id":"org_123","scopes":["audit:write"]}`))
+		_, _ = writer.Write([]byte(`{"active":true,"organization_id":"org_123","scopes":["audit:write"],"token_type":"agent","user_subject":"user-123","agent_type":"claude-code","capabilities":["bash","git"],"surface":"cli","run_id":"run_123"}`))
 	}))
 	defer server.Close()
 
@@ -51,6 +51,24 @@ func TestIntrospectSuccess(t *testing.T) {
 	}
 	if result.OrganizationID != "org_123" {
 		t.Fatalf("unexpected org id %q", result.OrganizationID)
+	}
+	if result.TokenType != "agent" {
+		t.Fatalf("unexpected token type %q", result.TokenType)
+	}
+	if result.UserSubject != "user-123" {
+		t.Fatalf("unexpected user subject %q", result.UserSubject)
+	}
+	if result.AgentType != "claude-code" {
+		t.Fatalf("unexpected agent type %q", result.AgentType)
+	}
+	if len(result.Capabilities) != 2 || result.Capabilities[0] != "bash" || result.Capabilities[1] != "git" {
+		t.Fatalf("unexpected capabilities %#v", result.Capabilities)
+	}
+	if result.Surface != "cli" {
+		t.Fatalf("unexpected surface %q", result.Surface)
+	}
+	if result.RunID != "run_123" {
+		t.Fatalf("unexpected run id %q", result.RunID)
 	}
 }
 
