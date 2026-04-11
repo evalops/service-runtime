@@ -65,13 +65,9 @@ type WriteOptions struct {
 	NewID            func() string
 }
 
-type RowScanner interface {
-	Scan(dest ...any) error
-}
-
 type DBTX interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) RowScanner
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 func WriteMutation(ctx context.Context, tx DBTX, actor Actor, resourceType, resourceID, operation string, payload any, metadata map[string]any) (int64, error) {

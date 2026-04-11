@@ -5,19 +5,57 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestWriteMutationWithDollarPlaceholders(t *testing.T) {
 	t.Parallel()
 
-	tx := &fakeTx{seq: 42}
+	db, mock := newMockDB(t)
 	now := time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC)
+	templates := Templates(PlaceholderDollar)
+	if !strings.Contains(templates.InsertAuditEntry, "$1") {
+		t.Fatalf("expected dollar placeholders in exec query, got %q", templates.InsertAuditEntry)
+	}
+	if !strings.Contains(templates.InsertChangeJournal, "$9") {
+		t.Fatalf("expected dollar placeholders in query row query, got %q", templates.InsertChangeJournal)
+	}
+
+	mock.ExpectExec(quoteQuery(templates.InsertAuditEntry)).
+		WithArgs(
+			"audit-1",
+			"org-123",
+			"service",
+			"pipeline",
+			"deal.create",
+			"deal",
+			"deal-1",
+			`{"request_id":"req-1"}`,
+			now,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(quoteQuery(templates.InsertChangeJournal)).
+		WithArgs(
+			"org-123",
+			"deal",
+			"deal-1",
+			"create",
+			"service",
+			"pipeline",
+			int64(7),
+			now,
+			`{"version":7,"name":"Test"}`,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(42))
+
 	sequence, err := WriteMutationWithOptions(
 		context.Background(),
-		tx,
+		db,
 		Actor{Type: "service", ID: "pipeline", OrganizationID: "org-123"},
 		"deal",
 		"deal-1",
@@ -35,35 +73,48 @@ func TestWriteMutationWithDollarPlaceholders(t *testing.T) {
 	if sequence != 42 {
 		t.Fatalf("expected sequence 42, got %d", sequence)
 	}
-
-	if !strings.Contains(tx.execQuery, "$1") {
-		t.Fatalf("expected dollar placeholders in exec query, got %q", tx.execQuery)
-	}
-	if !strings.Contains(tx.queryRowQuery, "$9") {
-		t.Fatalf("expected dollar placeholders in query row query, got %q", tx.queryRowQuery)
-	}
-
-	if tx.execArgs[0] != "audit-1" {
-		t.Fatalf("unexpected audit id %#v", tx.execArgs[0])
-	}
-	if tx.execArgs[4] != "deal.create" {
-		t.Fatalf("unexpected audit action %#v", tx.execArgs[4])
-	}
-	if tx.queryRowArgs[6] != int64(7) {
-		t.Fatalf("unexpected aggregate version %#v", tx.queryRowArgs[6])
-	}
-	if tx.queryRowArgs[8] != `{"version":7,"name":"Test"}` {
-		t.Fatalf("unexpected payload %#v", tx.queryRowArgs[8])
-	}
 }
 
 func TestWriteMutationWithQuestionPlaceholdersAndCustomAction(t *testing.T) {
 	t.Parallel()
 
-	tx := &fakeTx{seq: 9}
+	db, mock := newMockDB(t)
+	templates := Templates(PlaceholderQuestion)
+	if !strings.Contains(templates.InsertAuditEntry, "values (?, ?, ?, ?, ?, ?, ?, ?, ?)") {
+		t.Fatalf("unexpected exec query %q", templates.InsertAuditEntry)
+	}
+
+	now := time.Unix(0, 0).UTC()
+	mock.ExpectExec(quoteQuery(templates.InsertAuditEntry)).
+		WithArgs(
+			"audit-2",
+			"org-123",
+			"api_key",
+			nil,
+			"contact.manual_update",
+			"contact",
+			nil,
+			"null",
+			now,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(quoteQuery(templates.InsertChangeJournal)).
+		WithArgs(
+			"org-123",
+			"contact",
+			nil,
+			"update",
+			"api_key",
+			nil,
+			int64(1),
+			now,
+			`{"name":"Ada"}`,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(9))
+
 	_, err := WriteMutationWithOptions(
 		context.Background(),
-		tx,
+		db,
 		Actor{Type: "api_key", OrganizationID: "org-123"},
 		"contact",
 		"",
@@ -75,33 +126,22 @@ func TestWriteMutationWithQuestionPlaceholdersAndCustomAction(t *testing.T) {
 		WriteOptions{
 			PlaceholderStyle: PlaceholderQuestion,
 			AuditAction:      "contact.manual_update",
-			Now:              func() time.Time { return time.Unix(0, 0).UTC() },
+			Now:              func() time.Time { return now },
 			NewID:            func() string { return "audit-2" },
 		},
 	)
 	if err != nil {
 		t.Fatalf("write mutation: %v", err)
 	}
-	if !strings.Contains(tx.execQuery, "values (?, ?, ?, ?, ?, ?, ?, ?, ?)") {
-		t.Fatalf("unexpected exec query %q", tx.execQuery)
-	}
-	if tx.execArgs[3] != nil {
-		t.Fatalf("expected nil actor id, got %#v", tx.execArgs[3])
-	}
-	if tx.execArgs[4] != "contact.manual_update" {
-		t.Fatalf("unexpected audit action %#v", tx.execArgs[4])
-	}
-	if tx.queryRowArgs[2] != nil {
-		t.Fatalf("expected nil aggregate id, got %#v", tx.queryRowArgs[2])
-	}
 }
 
 func TestWriteMutationMarshalErrors(t *testing.T) {
 	t.Parallel()
 
+	db, _ := newMockDB(t)
 	_, err := WriteMutation(
 		context.Background(),
-		&fakeTx{},
+		db,
 		Actor{Type: "service", OrganizationID: "org-123"},
 		"deal",
 		"deal-1",
@@ -115,7 +155,7 @@ func TestWriteMutationMarshalErrors(t *testing.T) {
 
 	_, err = WriteMutation(
 		context.Background(),
-		&fakeTx{},
+		db,
 		Actor{Type: "service", OrganizationID: "org-123"},
 		"deal",
 		"deal-1",
@@ -131,9 +171,26 @@ func TestWriteMutationMarshalErrors(t *testing.T) {
 func TestWriteMutationDatabaseErrors(t *testing.T) {
 	t.Parallel()
 
+	db, mock := newMockDB(t)
+	templates := Templates(PlaceholderDollar)
+
+	mock.ExpectExec(quoteQuery(templates.InsertAuditEntry)).
+		WithArgs(
+			sqlmock.AnyArg(),
+			"org-123",
+			"service",
+			nil,
+			"deal.create",
+			"deal",
+			"deal-1",
+			"null",
+			sqlmock.AnyArg(),
+		).
+		WillReturnError(errors.New("insert failed"))
+
 	_, err := WriteMutation(
 		context.Background(),
-		&fakeTx{execErr: errors.New("insert failed")},
+		db,
 		Actor{Type: "service", OrganizationID: "org-123"},
 		"deal",
 		"deal-1",
@@ -145,9 +202,38 @@ func TestWriteMutationDatabaseErrors(t *testing.T) {
 		t.Fatalf("expected audit insert error, got %v", err)
 	}
 
+	db, mock = newMockDB(t)
+	templates = Templates(PlaceholderDollar)
+	mock.ExpectExec(quoteQuery(templates.InsertAuditEntry)).
+		WithArgs(
+			sqlmock.AnyArg(),
+			"org-123",
+			"service",
+			nil,
+			"deal.create",
+			"deal",
+			"deal-1",
+			"null",
+			sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(quoteQuery(templates.InsertChangeJournal)).
+		WithArgs(
+			"org-123",
+			"deal",
+			"deal-1",
+			"create",
+			"service",
+			nil,
+			int64(1),
+			sqlmock.AnyArg(),
+			`{"ok":"yes"}`,
+		).
+		WillReturnError(errors.New("seq failed"))
+
 	_, err = WriteMutation(
 		context.Background(),
-		&fakeTx{queryRowErr: errors.New("seq failed")},
+		db,
 		Actor{Type: "service", OrganizationID: "org-123"},
 		"deal",
 		"deal-1",
@@ -213,46 +299,22 @@ func (payload versionedPayload) GetVersion() int64 {
 	return payload.Version
 }
 
-type fakeTx struct {
-	execQuery     string
-	execArgs      []any
-	execErr       error
-	queryRowQuery string
-	queryRowArgs  []any
-	queryRowErr   error
-	seq           int64
-}
+func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
+	t.Helper()
 
-func (tx *fakeTx) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
-	tx.execQuery = query
-	tx.execArgs = append([]any(nil), args...)
-	if tx.execErr != nil {
-		return nil, tx.execErr
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
 	}
-	return fakeResult{}, nil
+	t.Cleanup(func() {
+		_ = db.Close()
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("sqlmock expectations: %v", err)
+		}
+	})
+	return db, mock
 }
 
-func (tx *fakeTx) QueryRowContext(_ context.Context, query string, args ...any) RowScanner {
-	tx.queryRowQuery = query
-	tx.queryRowArgs = append([]any(nil), args...)
-	return fakeRow{seq: tx.seq, err: tx.queryRowErr}
+func quoteQuery(query string) string {
+	return regexp.QuoteMeta(query)
 }
-
-type fakeRow struct {
-	seq int64
-	err error
-}
-
-func (row fakeRow) Scan(dest ...any) error {
-	if row.err != nil {
-		return row.err
-	}
-	target := dest[0].(*int64)
-	*target = row.seq
-	return nil
-}
-
-type fakeResult struct{}
-
-func (fakeResult) LastInsertId() (int64, error) { return 0, nil }
-func (fakeResult) RowsAffected() (int64, error) { return 1, nil }
