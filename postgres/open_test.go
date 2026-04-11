@@ -6,11 +6,14 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/evalops/service-runtime/startup"
 )
+
+var sqlOpenMu sync.Mutex
 
 func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	t.Parallel()
@@ -21,11 +24,9 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	}
 	defer db.Close()
 
-	previousOpen := sqlOpen
-	sqlOpen = func(string, string) (*sql.DB, error) {
+	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
-	}
-	defer func() { sqlOpen = previousOpen }()
+	})
 
 	mock.ExpectPing().WillReturnError(errors.New("not ready"))
 	mock.ExpectPing()
@@ -57,11 +58,9 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	}
 	defer db.Close()
 
-	previousOpen := sqlOpen
-	sqlOpen = func(string, string) (*sql.DB, error) {
+	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
-	}
-	defer func() { sqlOpen = previousOpen }()
+	})
 
 	mock.ExpectPing().WillReturnError(errors.New("still unavailable"))
 	mock.ExpectPing().WillReturnError(errors.New("still unavailable"))
@@ -82,4 +81,16 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
 	}
+}
+
+func restoreSQLOpen(t *testing.T, opener func(string, string) (*sql.DB, error)) {
+	t.Helper()
+
+	sqlOpenMu.Lock()
+	previousOpen := sqlOpen
+	sqlOpen = opener
+	t.Cleanup(func() {
+		sqlOpen = previousOpen
+		sqlOpenMu.Unlock()
+	})
 }
