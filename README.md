@@ -20,6 +20,7 @@ Current shared concerns:
 - HTTP request/response helpers and standard endpoints
 - service-scoped Prometheus metrics and request observability helpers
 - auth middleware primitives for bearer tokens, API keys, and actor context
+- atomic audit-entry and change-journal mutation recording
 - NATS JetStream CloudEvents publishing primitives
 
 Current non-goals:
@@ -249,6 +250,28 @@ Use this package when a service wants the shared `Authorization` parsing,
 API-key scope checks, actor context injection, and transport-level auth
 middleware shape while still keeping token verification and API-key lookup in
 service-owned backends.
+
+### `changejournal`
+
+Helpers for atomically writing an audit entry and change-journal row inside an
+existing transaction with the shared EvalOps schema shape.
+
+Main entry points:
+
+- `changejournal.WriteMutation(ctx, tx, actor, resourceType, resourceID, operation, payload, metadata)`
+- `changejournal.WriteMutationWithOptions(ctx, tx, actor, resourceType, resourceID, operation, payload, metadata, opts)`
+- `changejournal.Templates(style)`
+
+Supporting types:
+
+- `changejournal.Actor`
+- `changejournal.Change`
+- `changejournal.AuditEntry`
+- `changejournal.Versioned`
+
+Use this package when a service wants one shared write path for mutation
+auditing and event-sourcing records instead of re-implementing the same insert
+sequence and payload marshaling in each store package.
 
 ### `natsbus`
 
