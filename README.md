@@ -20,6 +20,7 @@ Current shared concerns:
 - HTTP request/response helpers and standard endpoints
 - service-scoped Prometheus metrics and request observability helpers
 - auth middleware primitives for bearer tokens, API keys, and actor context
+- NATS JetStream CloudEvents publishing primitives
 
 Current non-goals:
 
@@ -249,6 +250,22 @@ API-key scope checks, actor context injection, and transport-level auth
 middleware shape while still keeping token verification and API-key lookup in
 service-owned backends.
 
+### `natsbus`
+
+Helpers for publishing service change events to NATS JetStream with a shared
+CloudEvents envelope and subject convention.
+
+Main entry points:
+
+- `natsbus.Connect(ctx, natsURL, streamName, subjectPrefix, logger)`
+- `natsbus.ConnectWithOptions(ctx, natsURL, streamName, subjectPrefix, opts)`
+- `publisher.PublishChange(ctx, change)`
+- `publisher.Close()`
+- `natsbus.NoopPublisher`
+
+Use this package when a service wants the shared stream bootstrap and event
+envelope contract for change notifications without duplicating JetStream setup
+and subject formatting in each repo.
 ## Consumption
 
 Add the module to a consumer repo:
