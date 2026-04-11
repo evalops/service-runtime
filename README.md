@@ -21,6 +21,7 @@ Current shared concerns:
 - service-scoped Prometheus metrics and request observability helpers
 - auth middleware primitives for bearer tokens, API keys, and actor context
 - atomic audit-entry and change-journal mutation recording
+- idempotent mutation middleware and Postgres-backed replay storage
 - NATS JetStream CloudEvents publishing primitives
 
 Current non-goals:
@@ -272,6 +273,28 @@ Supporting types:
 Use this package when a service wants one shared write path for mutation
 auditing and event-sourcing records instead of re-implementing the same insert
 sequence and payload marshaling in each store package.
+
+### `idempotency`
+
+Helpers for enforcing idempotent mutation requests and replaying stored
+responses from the shared `api_idempotency_keys` schema.
+
+Main entry points:
+
+- `idempotency.Middleware(store, ttl)`
+- `idempotency.MiddlewareWithOptions(store, opts)`
+- `idempotency.NewPostgresStore(db)`
+- `idempotency.DefaultScope(request)`
+- `idempotency.RequestHash(method, path, body)`
+
+Supporting types:
+
+- `idempotency.ReplayResult`
+- `idempotency.Store`
+
+Use this package when a service wants the shared `Idempotency-Key` behavior,
+request hashing, replay handling, and Postgres storage contract instead of
+re-implementing those transport semantics per service.
 
 ### `natsbus`
 
