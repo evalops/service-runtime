@@ -21,12 +21,10 @@ github.com/cespare/xxhash/v2
 # github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
 ## explicit
 github.com/dgryski/go-rendezvous
-# github.com/evalops/identity v0.0.0-20260412170045-3b53c57e0f9a
-## explicit; go 1.25.0
-github.com/evalops/identity/gen/proto/go/identity/v1
 # github.com/evalops/proto v0.0.0-20260412154303-91e43cca162d
 ## explicit; go 1.23.0
 github.com/evalops/proto/gen/go/events/v1
+github.com/evalops/proto/gen/go/identity/v1
 # github.com/go-chi/chi/v5 v5.2.5
 ## explicit; go 1.22
 github.com/go-chi/chi/v5
@@ -60,6 +58,8 @@ github.com/jackc/puddle/v2/internal/genstack
 ## explicit; go 1.22
 github.com/klauspost/compress/flate
 github.com/klauspost/compress/internal/le
+# github.com/kr/text v0.2.0
+## explicit
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 ## explicit
 github.com/munnerz/goautoneg

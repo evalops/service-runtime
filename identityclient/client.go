@@ -3,6 +3,7 @@ package identityclient
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,10 +13,11 @@ import (
 	"sync"
 	"time"
 
-	identityv1 "github.com/evalops/identity/gen/proto/go/identity/v1"
+	identityv1 "github.com/evalops/proto/gen/go/identity/v1"
 	"github.com/evalops/service-runtime/mtls"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var (
@@ -51,7 +53,7 @@ type IntrospectionResult struct {
 
 type cachedIntrospection struct {
 	expiresAt time.Time
-	result    *identityv1.IntrospectionResult
+	result    *identityv1.IntrospectResponse
 }
 
 type serviceTokenCacheKey struct {
@@ -63,6 +65,58 @@ type serviceTokenCacheKey struct {
 type cachedServiceToken struct {
 	expiresAt time.Time
 	token     string
+}
+
+type ServiceTokenClaims struct {
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+}
+
+func (c *ServiceTokenClaims) GetExpiresAt() *timestamppb.Timestamp {
+	if c == nil || c.ExpiresAt.IsZero() {
+		return nil
+	}
+	return timestamppb.New(c.ExpiresAt)
+}
+
+type ServiceTokenResponse struct {
+	Token     string              `json:"token,omitempty"`
+	TokenType string              `json:"token_type,omitempty"`
+	ExpiresAt time.Time           `json:"expires_at,omitempty"`
+	Claims    *ServiceTokenClaims `json:"claims,omitempty"`
+}
+
+func (r *ServiceTokenResponse) GetToken() string {
+	if r == nil {
+		return ""
+	}
+	return r.Token
+}
+
+func (r *ServiceTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if r == nil || r.ExpiresAt.IsZero() {
+		return nil
+	}
+	return timestamppb.New(r.ExpiresAt)
+}
+
+func (r *ServiceTokenResponse) GetClaims() *ServiceTokenClaims {
+	if r == nil {
+		return nil
+	}
+	return r.Claims
+}
+
+func (r *ServiceTokenResponse) expiryTime() (time.Time, bool) {
+	if r == nil {
+		return time.Time{}, false
+	}
+	if !r.ExpiresAt.IsZero() {
+		return r.ExpiresAt, true
+	}
+	if r.Claims != nil && !r.Claims.ExpiresAt.IsZero() {
+		return r.Claims.ExpiresAt, true
+	}
+	return time.Time{}, false
 }
 
 type Client struct {
@@ -133,7 +187,7 @@ func (c *Client) Introspect(ctx context.Context, bearerToken string) (Introspect
 	return introspectionResultFromProto(result), nil
 }
 
-func (c *Client) IntrospectProto(ctx context.Context, bearerToken string) (*identityv1.IntrospectionResult, error) {
+func (c *Client) IntrospectProto(ctx context.Context, bearerToken string) (*identityv1.IntrospectResponse, error) {
 	if !c.Configured() {
 		return nil, ErrIdentityNotConfigured
 	}
@@ -189,14 +243,14 @@ func (c *Client) IntrospectProto(ctx context.Context, bearerToken string) (*iden
 		return nil, fmt.Errorf("%w: read_response: %v", ErrIdentityUnavailable, err)
 	}
 
-	var result identityv1.IntrospectionResult
+	var result identityv1.IntrospectResponse
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &result); err != nil {
 		if hasCached {
 			return cached, nil
 		}
 		return nil, fmt.Errorf("%w: decode_response: %v", ErrIdentityUnavailable, err)
 	}
-	if result.Active == nil || !result.GetActive() {
+	if !result.GetActive() {
 		c.evictIntrospection(bearerToken)
 		return nil, ErrInactiveToken
 	}
@@ -211,12 +265,12 @@ func (c *Client) IssueServiceToken(
 	service string,
 	scopes []string,
 	ttl time.Duration,
-) (*identityv1.ServiceTokenResponse, error) {
+) (*ServiceTokenResponse, error) {
 	if !c.ServiceTokensConfigured() {
 		return nil, ErrServiceTokensNotConfigured
 	}
 
-	payload := &identityv1.ServiceTokenRequest{
+	payload := &identityv1.IssueServiceTokenRequest{
 		Service:        service,
 		OrganizationId: organizationID,
 		Scopes:         scopes,
@@ -257,8 +311,8 @@ func (c *Client) IssueServiceToken(
 		return nil, fmt.Errorf("read_response: %w", err)
 	}
 
-	var result identityv1.ServiceTokenResponse
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &result); err != nil {
+	var result ServiceTokenResponse
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decode_response: %w", err)
 	}
 	if strings.TrimSpace(result.GetToken()) == "" {
@@ -296,22 +350,22 @@ func (c *Client) ResolveServiceToken(
 	if err != nil {
 		return "", err
 	}
-	claims := issued.GetClaims()
-	if claims == nil || claims.GetExpiresAt() == nil {
+	expiresAt, ok := issued.expiryTime()
+	if !ok {
 		return "", errors.New("missing_service_token_expiry")
 	}
 
 	c.serviceTokenLock.Lock()
 	c.serviceTokens[key] = cachedServiceToken{
 		token:     issued.GetToken(),
-		expiresAt: claims.GetExpiresAt().AsTime(),
+		expiresAt: expiresAt,
 	}
 	c.serviceTokenLock.Unlock()
 
 	return issued.GetToken(), nil
 }
 
-func introspectionResultFromProto(result *identityv1.IntrospectionResult) IntrospectionResult {
+func introspectionResultFromProto(result *identityv1.IntrospectResponse) IntrospectionResult {
 	if result == nil {
 		return IntrospectionResult{}
 	}
@@ -330,7 +384,7 @@ func introspectionResultFromProto(result *identityv1.IntrospectionResult) Intros
 	}
 }
 
-func (c *Client) cachedIntrospection(bearerToken string) (*identityv1.IntrospectionResult, bool) {
+func (c *Client) cachedIntrospection(bearerToken string) (*identityv1.IntrospectResponse, bool) {
 	if c == nil || c.cacheTTL <= 0 || bearerToken == "" {
 		return nil, false
 	}
@@ -349,7 +403,7 @@ func (c *Client) cachedIntrospection(bearerToken string) (*identityv1.Introspect
 	return cloneIntrospectionResult(cached.result), true
 }
 
-func (c *Client) storeIntrospection(bearerToken string, result *identityv1.IntrospectionResult) {
+func (c *Client) storeIntrospection(bearerToken string, result *identityv1.IntrospectResponse) {
 	if c == nil || c.cacheTTL <= 0 || bearerToken == "" || result == nil {
 		return
 	}
@@ -402,11 +456,11 @@ func cacheScopesKey(scopes []string) string {
 	return strings.Join(deduped, "\x00")
 }
 
-func cloneIntrospectionResult(result *identityv1.IntrospectionResult) *identityv1.IntrospectionResult {
+func cloneIntrospectionResult(result *identityv1.IntrospectResponse) *identityv1.IntrospectResponse {
 	if result == nil {
 		return nil
 	}
-	cloned, ok := proto.Clone(result).(*identityv1.IntrospectionResult)
+	cloned, ok := proto.Clone(result).(*identityv1.IntrospectResponse)
 	if !ok {
 		return nil
 	}
