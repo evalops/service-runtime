@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	identityv1 "github.com/evalops/identity/gen/proto/go/identity/v1"
+	identityv1 "github.com/evalops/proto/gen/go/identity/v1"
 	"github.com/evalops/service-runtime/mtls"
 )
 
@@ -452,9 +452,9 @@ func writeJSON(t *testing.T, w http.ResponseWriter, status int, payload any) {
 	}
 }
 
-func protoIntrospectionResult(active bool, organizationID string) *identityv1.IntrospectionResult {
-	return &identityv1.IntrospectionResult{
-		Active:         &active,
+func protoIntrospectionResult(active bool, organizationID string) *identityv1.IntrospectResponse {
+	return &identityv1.IntrospectResponse{
+		Active:         active,
 		OrganizationId: organizationID,
 	}
 }

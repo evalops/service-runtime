@@ -22,66 +22,8 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type DeviceInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ForwardedFor  string                 `protobuf:"bytes,1,opt,name=forwarded_for,json=forwardedFor,proto3" json:"forwarded_for,omitempty"`
-	Ip            string                 `protobuf:"bytes,2,opt,name=ip,proto3" json:"ip,omitempty"`
-	UserAgent     string                 `protobuf:"bytes,3,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeviceInfo) Reset() {
-	*x = DeviceInfo{}
-	mi := &file_identity_v1_sessions_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeviceInfo) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeviceInfo) ProtoMessage() {}
-
-func (x *DeviceInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_sessions_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeviceInfo.ProtoReflect.Descriptor instead.
-func (*DeviceInfo) Descriptor() ([]byte, []int) {
-	return file_identity_v1_sessions_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *DeviceInfo) GetForwardedFor() string {
-	if x != nil {
-		return x.ForwardedFor
-	}
-	return ""
-}
-
-func (x *DeviceInfo) GetIp() string {
-	if x != nil {
-		return x.Ip
-	}
-	return ""
-}
-
-func (x *DeviceInfo) GetUserAgent() string {
-	if x != nil {
-		return x.UserAgent
-	}
-	return ""
-}
-
+// Session represents an authenticated user session.
+// Derived from identity/internal/sessions.Session.
 type Session struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -99,7 +41,7 @@ type Session struct {
 
 func (x *Session) Reset() {
 	*x = Session{}
-	mi := &file_identity_v1_sessions_proto_msgTypes[1]
+	mi := &file_identity_v1_sessions_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -111,7 +53,7 @@ func (x *Session) String() string {
 func (*Session) ProtoMessage() {}
 
 func (x *Session) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_sessions_proto_msgTypes[1]
+	mi := &file_identity_v1_sessions_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -124,7 +66,7 @@ func (x *Session) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Session.ProtoReflect.Descriptor instead.
 func (*Session) Descriptor() ([]byte, []int) {
-	return file_identity_v1_sessions_proto_rawDescGZIP(), []int{1}
+	return file_identity_v1_sessions_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Session) GetId() string {
@@ -190,17 +132,71 @@ func (x *Session) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type DeviceInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ip            string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
+	ForwardedFor  string                 `protobuf:"bytes,2,opt,name=forwarded_for,json=forwardedFor,proto3" json:"forwarded_for,omitempty"`
+	UserAgent     string                 `protobuf:"bytes,3,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceInfo) Reset() {
+	*x = DeviceInfo{}
+	mi := &file_identity_v1_sessions_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceInfo) ProtoMessage() {}
+
+func (x *DeviceInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_sessions_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceInfo.ProtoReflect.Descriptor instead.
+func (*DeviceInfo) Descriptor() ([]byte, []int) {
+	return file_identity_v1_sessions_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DeviceInfo) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *DeviceInfo) GetForwardedFor() string {
+	if x != nil {
+		return x.ForwardedFor
+	}
+	return ""
+}
+
+func (x *DeviceInfo) GetUserAgent() string {
+	if x != nil {
+		return x.UserAgent
+	}
+	return ""
+}
+
 var File_identity_v1_sessions_proto protoreflect.FileDescriptor
 
 const file_identity_v1_sessions_proto_rawDesc = "" +
 	"\n" +
-	"\x1aidentity/v1/sessions.proto\x12\videntity.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"`\n" +
-	"\n" +
-	"DeviceInfo\x12#\n" +
-	"\rforwarded_for\x18\x01 \x01(\tR\fforwardedFor\x12\x0e\n" +
-	"\x02ip\x18\x02 \x01(\tR\x02ip\x12\x1d\n" +
-	"\n" +
-	"user_agent\x18\x03 \x01(\tR\tuserAgent\"\x83\x03\n" +
+	"\x1aidentity/v1/sessions.proto\x12\videntity.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x83\x03\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\videntity_id\x18\x02 \x01(\tR\n" +
@@ -215,7 +211,13 @@ const file_identity_v1_sessions_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAtBAZ?github.com/evalops/identity/gen/proto/go/identity/v1;identityv1b\x06proto3"
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"`\n" +
+	"\n" +
+	"DeviceInfo\x12\x0e\n" +
+	"\x02ip\x18\x01 \x01(\tR\x02ip\x12#\n" +
+	"\rforwarded_for\x18\x02 \x01(\tR\fforwardedFor\x12\x1d\n" +
+	"\n" +
+	"user_agent\x18\x03 \x01(\tR\tuserAgentB8Z6github.com/evalops/proto/gen/go/identity/v1;identityv1b\x06proto3"
 
 var (
 	file_identity_v1_sessions_proto_rawDescOnce sync.Once
@@ -231,12 +233,12 @@ func file_identity_v1_sessions_proto_rawDescGZIP() []byte {
 
 var file_identity_v1_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_identity_v1_sessions_proto_goTypes = []any{
-	(*DeviceInfo)(nil),            // 0: identity.v1.DeviceInfo
-	(*Session)(nil),               // 1: identity.v1.Session
+	(*Session)(nil),               // 0: identity.v1.Session
+	(*DeviceInfo)(nil),            // 1: identity.v1.DeviceInfo
 	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
 }
 var file_identity_v1_sessions_proto_depIdxs = []int32{
-	0, // 0: identity.v1.Session.device_info:type_name -> identity.v1.DeviceInfo
+	1, // 0: identity.v1.Session.device_info:type_name -> identity.v1.DeviceInfo
 	2, // 1: identity.v1.Session.expires_at:type_name -> google.protobuf.Timestamp
 	2, // 2: identity.v1.Session.created_at:type_name -> google.protobuf.Timestamp
 	2, // 3: identity.v1.Session.updated_at:type_name -> google.protobuf.Timestamp
