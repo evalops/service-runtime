@@ -17,28 +17,34 @@ import (
 	"github.com/evalops/service-runtime/httpkit"
 )
 
+// DefaultTTL is the default time-to-live for idempotency keys.
 const DefaultTTL = 24 * time.Hour
 
+// ErrConflict, ErrPending, and ErrScopeUnavailable are sentinel errors returned by the idempotency store.
 var (
 	ErrConflict         = errors.New("idempotency_conflict")
 	ErrPending          = errors.New("idempotency_pending")
 	ErrScopeUnavailable = errors.New("idempotency_scope_unavailable")
 )
 
+// ReplayResult holds the stored HTTP response for an idempotent replay.
 type ReplayResult struct {
 	StatusCode  int
 	ContentType string
 	Body        []byte
 }
 
+// Store persists and retrieves idempotency keys.
 type Store interface {
 	Cleanup(ctx context.Context, now time.Time) error
 	Begin(ctx context.Context, scope, key, requestHash string, ttl time.Duration, now time.Time) (*ReplayResult, error)
 	Complete(ctx context.Context, scope, key string, result ReplayResult, completedAt time.Time) error
 }
 
+// ScopeFunc derives the idempotency scope (e.g., org+method+path) from a request.
 type ScopeFunc func(request *http.Request) (string, error)
 
+// Options configures the idempotency middleware.
 type Options struct {
 	TTL       time.Duration
 	ScopeFunc ScopeFunc
@@ -46,10 +52,12 @@ type Options struct {
 	Now       func() time.Time
 }
 
+// Middleware returns an HTTP middleware that enforces idempotency using the given store and TTL.
 func Middleware(store Store, ttl time.Duration) func(http.Handler) http.Handler {
 	return MiddlewareWithOptions(store, Options{TTL: ttl})
 }
 
+// MiddlewareWithOptions is like Middleware but accepts a full Options struct.
 func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Handler {
 	opts = opts.withDefaults()
 
@@ -76,8 +84,8 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 			request.Body = io.NopCloser(bytes.NewReader(body))
 
 			now := opts.Now().UTC()
-			if cleanupErr := store.Cleanup(request.Context(), now); cleanupErr != nil {
-				httpkit.WriteError(writer, http.StatusInternalServerError, "idempotency_failed", cleanupErr.Error())
+			if err := store.Cleanup(request.Context(), now); err != nil {
+				httpkit.WriteError(writer, http.StatusInternalServerError, "idempotency_failed", err.Error())
 				return
 			}
 
@@ -102,8 +110,7 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 				}
 				writer.Header().Set("X-Idempotent-Replay", "true")
 				writer.WriteHeader(replay.StatusCode)
-				//nolint:gosec // Replay returns the previously stored response for the same idempotent request.
-				_, _ = writer.Write(replay.Body)
+				_, _ = writer.Write(replay.Body) //nolint:gosec // G705: body is our own stored handler response, not user-reflected input
 				return
 			}
 
@@ -125,6 +132,7 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 	}
 }
 
+// DefaultScope derives the idempotency scope from the authenticated actor ID, method, and path.
 func DefaultScope(request *http.Request) (string, error) {
 	actor, ok := authmw.ActorFromContext(request.Context())
 	if !ok || strings.TrimSpace(actor.OrganizationID) == "" {
@@ -133,6 +141,7 @@ func DefaultScope(request *http.Request) (string, error) {
 	return actor.OrganizationID + ":" + request.Method + ":" + request.URL.Path, nil
 }
 
+// RequestHash returns a hex-encoded SHA-256 of the method, path, and body.
 func RequestHash(method, path string, body []byte) string {
 	hash := sha256.New()
 	hash.Write([]byte(method + ":" + path + ":"))
@@ -156,19 +165,23 @@ func (opts Options) withDefaults() Options {
 	return opts
 }
 
+// PostgresStore is a Store backed by a Postgres database.
 type PostgresStore struct {
 	db *sql.DB
 }
 
+// NewPostgresStore creates a PostgresStore using the given database connection.
 func NewPostgresStore(db *sql.DB) *PostgresStore {
 	return &PostgresStore{db: db}
 }
 
+// Cleanup deletes expired idempotency keys.
 func (store *PostgresStore) Cleanup(ctx context.Context, now time.Time) error {
 	_, err := store.db.ExecContext(ctx, deleteExpiredIdempotencyKeysSQL, now.UTC())
 	return err
 }
 
+// Begin registers a new idempotency key or returns the stored replay result if it already exists.
 func (store *PostgresStore) Begin(ctx context.Context, scope, key, requestHash string, ttl time.Duration, now time.Time) (*ReplayResult, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -183,11 +196,11 @@ func (store *PostgresStore) Begin(ctx context.Context, scope, key, requestHash s
 	err = tx.QueryRowContext(ctx, getIdempotencyKeySQL, scope, key).Scan(&storedHash, &responseCode, &body, &contentType)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		if _, execErr := tx.ExecContext(ctx, insertIdempotencyKeySQL, scope, key, requestHash, now.UTC(), now.UTC().Add(ttl)); execErr != nil {
-			return nil, execErr
+		if _, err := tx.ExecContext(ctx, insertIdempotencyKeySQL, scope, key, requestHash, now.UTC(), now.UTC().Add(ttl)); err != nil {
+			return nil, err
 		}
-		if commitErr := tx.Commit(); commitErr != nil {
-			return nil, commitErr
+		if err := tx.Commit(); err != nil {
+			return nil, err
 		}
 		return nil, nil
 	case err != nil:
@@ -212,6 +225,7 @@ func (store *PostgresStore) Begin(ctx context.Context, scope, key, requestHash s
 	}, nil
 }
 
+// Complete stores the response for a completed idempotency key.
 func (store *PostgresStore) Complete(ctx context.Context, scope, key string, result ReplayResult, completedAt time.Time) error {
 	_, err := store.db.ExecContext(
 		ctx,

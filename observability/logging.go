@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// RequestLoggingMiddleware returns an HTTP middleware that logs each request and records Prometheus metrics.
 func RequestLoggingMiddleware(logger *slog.Logger, metrics *Metrics) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -89,3 +90,4 @@ func (writer *responseRecorder) Write(body []byte) (int, error) {
 func (writer *responseRecorder) BodyBytes() []byte {
 	return append([]byte(nil), writer.body.Bytes()...)
 }
+
