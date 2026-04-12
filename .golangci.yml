@@ -12,14 +12,15 @@ linters:
     - staticcheck
     - unused
     - gocritic
-    - revive
     - gosec
     - nilerr
+    - revive
 
   settings:
     errcheck:
       check-type-assertions: true
-    gosec:
-      excludes:
-        - G104
-        - G304
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+          disabled: false

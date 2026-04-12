@@ -9,6 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Options configures Redis connection behaviour.
 type Options struct {
 	PingTimeout time.Duration
 	Retry       startup.Config
@@ -18,6 +19,7 @@ var pingClient = func(ctx context.Context, client *redis.Client) error {
 	return client.Ping(ctx).Err()
 }
 
+// Open connects to Redis, waiting for it to become ready.
 func Open(ctx context.Context, redisURL string, opts Options) (*redis.Client, error) {
 	options, err := redis.ParseURL(redisURL)
 	if err != nil {

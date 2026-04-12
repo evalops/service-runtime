@@ -41,10 +41,10 @@ func TestConfigured(t *testing.T) {
 	if !NewClient("https://identity.internal/v1/tokens/introspect", time.Second, nil).Configured() {
 		t.Fatal("expected configured client")
 	}
-	if !New(Config{ServiceTokensURL: "https://identity.internal/v1/service-tokens", BootstrapKey: "bootstrap"}).ServiceTokensConfigured() {
+	if !New(Config{ServiceTokensURL: "https://identity.internal/v1/service-tokens", BootstrapKey: "bootstrap"}).ServiceTokensConfigured() { //nolint:gosec // G101: test credential
 		t.Fatal("expected service tokens to be configured")
 	}
-	if !New(Config{
+	if !New(Config{ //nolint:gosec // G101: test credential
 		ServiceTokensURL: "https://identity.internal/v1/service-tokens",
 		HTTPClient: &http.Client{
 			Transport: &http.Transport{
@@ -54,7 +54,7 @@ func TestConfigured(t *testing.T) {
 	}).ServiceTokensConfigured() {
 		t.Fatal("expected mtls-authenticated service tokens to be configured")
 	}
-	if New(Config{
+	if New(Config{ //nolint:gosec // G101: test credential
 		ServiceTokensURL: "https://identity.internal/v1/service-tokens",
 		BootstrapKey:     "   ",
 	}).ServiceTokensConfigured() {

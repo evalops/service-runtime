@@ -9,6 +9,7 @@ import (
 	"os"
 )
 
+// ClientConfig holds TLS settings for an outbound mTLS client.
 type ClientConfig struct {
 	CAFile     string
 	CertFile   string
@@ -16,12 +17,14 @@ type ClientConfig struct {
 	ServerName string
 }
 
+// ServerConfig holds TLS settings for an inbound mTLS server.
 type ServerConfig struct {
 	CertFile     string
 	KeyFile      string
 	ClientCAFile string
 }
 
+// BuildServerTLSConfig returns a *tls.Config for an mTLS server, or nil when all fields are empty.
 func BuildServerTLSConfig(cfg ServerConfig) (*tls.Config, error) {
 	if cfg.CertFile == "" && cfg.KeyFile == "" && cfg.ClientCAFile == "" {
 		return nil, nil
@@ -56,6 +59,8 @@ func BuildServerTLSConfig(cfg ServerConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// BuildHTTPClient returns an *http.Client configured with the given mTLS settings,
+// or http.DefaultClient when the config is empty.
 func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 	tlsConfig, err := BuildClientTLSConfig(cfg)
 	if err != nil {
@@ -65,11 +70,16 @@ func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 		return http.DefaultClient, nil
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = tlsConfig
-	return &http.Client{Transport: transport}, nil
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("default transport is not *http.Transport")
+	}
+	clone := transport.Clone()
+	clone.TLSClientConfig = tlsConfig
+	return &http.Client{Transport: clone}, nil
 }
 
+// BuildClientTLSConfig returns a *tls.Config for an outbound mTLS client, or nil when all fields are empty.
 func BuildClientTLSConfig(cfg ClientConfig) (*tls.Config, error) {
 	if cfg.CAFile == "" && cfg.CertFile == "" && cfg.KeyFile == "" && cfg.ServerName == "" {
 		return nil, nil
@@ -109,12 +119,14 @@ func BuildClientTLSConfig(cfg ClientConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// HasVerifiedClientCertificate reports whether the request contains a verified TLS client certificate.
 func HasVerifiedClientCertificate(request *http.Request) bool {
 	return request != nil &&
 		request.TLS != nil &&
 		len(request.TLS.VerifiedChains) > 0
 }
 
+// VerifiedClientCertificateIdentities returns deduplicated identities from the verified client certificate.
 func VerifiedClientCertificateIdentities(request *http.Request) []string {
 	if !HasVerifiedClientCertificate(request) {
 		return nil
@@ -155,6 +167,8 @@ func VerifiedClientCertificateIdentities(request *http.Request) []string {
 	return identities
 }
 
+// HasAllowedVerifiedClientCertificate reports whether the request has a verified client certificate
+// whose identity is in allowedIdentities (or allowedIdentities is empty).
 func HasAllowedVerifiedClientCertificate(request *http.Request, allowedIdentities []string) bool {
 	if !HasVerifiedClientCertificate(request) {
 		return false
@@ -174,10 +188,13 @@ func HasAllowedVerifiedClientCertificate(request *http.Request, allowedIdentitie
 	return false
 }
 
+// RequireVerifiedClientCertificate is an HTTP middleware that rejects requests without a verified client certificate.
 func RequireVerifiedClientCertificate(next http.Handler) http.Handler {
 	return RequireVerifiedClientCertificateForIdentities(nil, next)
 }
 
+// RequireVerifiedClientCertificateForIdentities is an HTTP middleware that rejects requests whose
+// client certificate identity is not in allowedIdentities (pass nil to allow any verified certificate).
 func RequireVerifiedClientCertificateForIdentities(allowedIdentities []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !HasVerifiedClientCertificate(request) {

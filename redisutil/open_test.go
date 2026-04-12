@@ -24,7 +24,7 @@ func TestOpenConnectsToRedis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open redis: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 }
 
 func TestOpenRetriesUntilSuccess(t *testing.T) {
@@ -51,7 +51,7 @@ func TestOpenRetriesUntilSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected redis open to succeed, got %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if attempts != 3 {
 		t.Fatalf("expected 3 attempts, got %d", attempts)
 	}

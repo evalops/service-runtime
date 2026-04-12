@@ -177,7 +177,7 @@ func TestPostgresStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store := NewPostgresStore(db)
 	now := time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC)
@@ -225,7 +225,7 @@ func TestPostgresStoreReplayConflictAndPending(t *testing.T) {
 
 	t.Run("conflict", func(t *testing.T) {
 		db, mock, _ := sqlmock.New()
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 
 		store := NewPostgresStore(db)
 		mock.ExpectBegin()
@@ -243,7 +243,7 @@ func TestPostgresStoreReplayConflictAndPending(t *testing.T) {
 
 	t.Run("pending", func(t *testing.T) {
 		db, mock, _ := sqlmock.New()
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 
 		store := NewPostgresStore(db)
 		mock.ExpectBegin()

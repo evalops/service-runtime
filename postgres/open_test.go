@@ -22,7 +22,7 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
@@ -56,7 +56,7 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil

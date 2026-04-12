@@ -9,8 +9,10 @@ import (
 	"github.com/evalops/service-runtime/startup"
 )
 
+// InitFunc is called after a successful ping to perform schema setup or migrations.
 type InitFunc func(context.Context, *sql.DB) error
 
+// Options configures postgres connection behaviour.
 type Options struct {
 	DriverName  string
 	PingTimeout time.Duration
@@ -19,10 +21,12 @@ type Options struct {
 
 var sqlOpen = sql.Open
 
+// Open connects to a Postgres database, waiting for it to become ready.
 func Open(ctx context.Context, databaseURL string, opts Options) (*sql.DB, error) {
 	return OpenAndInit(ctx, databaseURL, nil, opts)
 }
 
+// OpenAndInit connects to a Postgres database and, after a successful ping, calls init.
 func OpenAndInit(ctx context.Context, databaseURL string, init InitFunc, opts Options) (*sql.DB, error) {
 	opts = withDefaults(opts)
 
