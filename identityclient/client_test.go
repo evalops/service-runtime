@@ -72,6 +72,29 @@ func TestIntrospectSuccess(t *testing.T) {
 	}
 }
 
+func TestIntrospectProtoSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"active":true,"organization_id":"org_123","scopes":["audit:write"],"token_type":"agent","user_subject":"user-123","agent_type":"claude-code","capabilities":["bash","git"],"surface":"cli","run_id":"run_123"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, time.Second, server.Client())
+	result, err := client.IntrospectProto(context.Background(), "write-token")
+	if err != nil {
+		t.Fatalf("introspect proto: %v", err)
+	}
+	if !result.GetActive() {
+		t.Fatal("expected active token")
+	}
+	if result.GetOrganizationId() != "org_123" {
+		t.Fatalf("unexpected org id %q", result.GetOrganizationId())
+	}
+	if result.GetRunId() != "run_123" {
+		t.Fatalf("unexpected run id %q", result.GetRunId())
+	}
+}
+
 func TestIntrospectReturnsInvalidTokenForUnauthorized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusUnauthorized)
