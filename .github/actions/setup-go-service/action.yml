@@ -59,6 +59,20 @@ runs:
         echo "GONOSUMDB=github.com/evalops/*" >> "$GITHUB_ENV"
         echo "GOPROXY=direct" >> "$GITHUB_ENV"
 
+    - name: Configure authenticated GitHub module access
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        if [ -z "$GITHUB_TOKEN" ]; then
+          exit 0
+        fi
+
+        authenticated_prefix="https://x-access-token:${GITHUB_TOKEN}@github.com/"
+        git config --global url."${authenticated_prefix}".insteadOf "https://github.com/"
+        git config --global url."${authenticated_prefix}".insteadOf "ssh://git@github.com/"
+        git config --global url."${authenticated_prefix}".insteadOf "git@github.com:"
+
     - name: Download Go modules
       if: ${{ inputs.download == 'true' }}
       shell: bash
