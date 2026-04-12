@@ -177,7 +177,7 @@ func (c *Client) Configured() bool {
 }
 
 func (c *Client) ServiceTokensConfigured() bool {
-	return c != nil && c.serviceTokensURL != "" && (c.bootstrapKey != "" || c.usesMTLSClientCertificate())
+	return c != nil && c.serviceTokensURL != "" && (strings.TrimSpace(c.bootstrapKey) != "" || c.usesMTLSClientCertificate())
 }
 
 func (c *Client) Introspect(ctx context.Context, bearerToken string) (IntrospectionResult, error) {
