@@ -461,7 +461,8 @@ secret named `github_token`. A Dockerfile can opt into that secret with:
 
 ```dockerfile
 RUN --mount=type=secret,id=github_token \
-    git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" && \
+    git config --global http.https://github.com/.extraheader \
+      "AUTHORIZATION: basic $(printf 'x-access-token:%s' \"$(cat /run/secrets/github_token)\" | base64 | tr -d '\n')" && \
     go mod download
 ```
 

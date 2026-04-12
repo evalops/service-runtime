@@ -21,10 +21,10 @@ github.com/cespare/xxhash/v2
 # github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
 ## explicit
 github.com/dgryski/go-rendezvous
-# github.com/evalops/identity v0.0.0-20260412064019-c59a712c2c28
+# github.com/evalops/identity v0.0.0-20260412170045-3b53c57e0f9a
 ## explicit; go 1.25.0
 github.com/evalops/identity/gen/proto/go/identity/v1
-# github.com/evalops/proto v0.0.0-20260412071349-ea3a75bae80b
+# github.com/evalops/proto v0.0.0-20260412154303-91e43cca162d
 ## explicit; go 1.23.0
 github.com/evalops/proto/gen/go/events/v1
 # github.com/go-chi/chi/v5 v5.2.5
@@ -159,7 +159,7 @@ golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 golang.org/x/text/width
-# google.golang.org/protobuf v1.36.8
+# google.golang.org/protobuf v1.36.9
 ## explicit; go 1.23
 google.golang.org/protobuf/encoding/protodelim
 google.golang.org/protobuf/encoding/protojson

@@ -68,10 +68,8 @@ runs:
           exit 0
         fi
 
-        authenticated_prefix="https://x-access-token:${GITHUB_TOKEN}@github.com/"
-        git config --global url."${authenticated_prefix}".insteadOf "https://github.com/"
-        git config --global url."${authenticated_prefix}".insteadOf "ssh://git@github.com/"
-        git config --global url."${authenticated_prefix}".insteadOf "git@github.com:"
+        auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+        git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${auth_header}"
 
     - name: Download Go modules
       if: ${{ inputs.download == 'true' }}
