@@ -17,6 +17,8 @@ github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/r
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/evalops/identity v0.0.0-20260412064019-c59a712c2c28 h1:DTk12QC3lE5l1LbMQOFzn0B9k8cUcic/p+mLljw0AVc=
 github.com/evalops/identity v0.0.0-20260412064019-c59a712c2c28/go.mod h1:WKXTkbAjpmBKgkwrcW42dyCG+Rkd8h0OrSwT3uRVP/c=
+github.com/evalops/proto v0.0.0-20260412071349-ea3a75bae80b h1:JILPzvJQb2qYgxZNVX8snlL5NC3ywsJcAeaB9GTJtP4=
+github.com/evalops/proto v0.0.0-20260412071349-ea3a75bae80b/go.mod h1:EXB8IcqMaV58Tt0w2GaQia3YOwzrEvnIWFZetHX+IxE=
 github.com/go-chi/chi/v5 v5.2.5 h1:Eg4myHZBjyvJmAFjFvWgrqDTXFyOzjj7YIm3L3mu6Ug=
 github.com/go-chi/chi/v5 v5.2.5/go.mod h1:X7Gx4mteadT3eDOMTsXzmI4/rwUpOwBHLpAfupzFJP0=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
