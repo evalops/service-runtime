@@ -58,7 +58,7 @@ func TestMiddleware200(t *testing.T) {
 	l := ratelimit.New(cfg)
 	defer l.Close()
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
 
@@ -76,7 +76,7 @@ func TestMiddleware429(t *testing.T) {
 	l := ratelimit.New(cfg)
 	defer l.Close()
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
 
@@ -108,7 +108,7 @@ func TestExemptPaths(t *testing.T) {
 	l := ratelimit.New(cfg)
 	defer l.Close()
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
 
@@ -129,11 +129,11 @@ func TestOnLimitedCallback(t *testing.T) {
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1
 	cfg.Burst = 1
-	cfg.OnLimited = func(r *http.Request) { count.Add(1) }
+	cfg.OnLimited = func(_ *http.Request) { count.Add(1) }
 	l := ratelimit.New(cfg)
 	defer l.Close()
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
 
@@ -174,7 +174,7 @@ func TestXForwardedFor(t *testing.T) {
 	l := ratelimit.New(cfg)
 	defer l.Close()
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
 

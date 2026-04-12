@@ -25,7 +25,7 @@ func TestEmptyChecker(t *testing.T) {
 
 func TestHealthyCheck(t *testing.T) {
 	c := health.New()
-	c.Add("db", func(ctx context.Context) error { return nil })
+	c.Add("db", func(_ context.Context) error { return nil })
 	r := c.Check(context.Background(), time.Second)
 	if !r.Healthy {
 		t.Error("should be healthy")
@@ -43,7 +43,7 @@ func TestHealthyCheck(t *testing.T) {
 
 func TestUnhealthyCheck(t *testing.T) {
 	c := health.New()
-	c.Add("db", func(ctx context.Context) error { return errors.New("connection refused") })
+	c.Add("db", func(_ context.Context) error { return errors.New("connection refused") })
 	r := c.Check(context.Background(), time.Second)
 	if r.Healthy {
 		t.Error("should be unhealthy")
@@ -55,9 +55,9 @@ func TestUnhealthyCheck(t *testing.T) {
 
 func TestMixedChecks(t *testing.T) {
 	c := health.New()
-	c.Add("db", func(ctx context.Context) error { return nil })
-	c.Add("redis", func(ctx context.Context) error { return errors.New("timeout") })
-	c.Add("nats", func(ctx context.Context) error { return nil })
+	c.Add("db", func(_ context.Context) error { return nil })
+	c.Add("redis", func(_ context.Context) error { return errors.New("timeout") })
+	c.Add("nats", func(_ context.Context) error { return nil })
 	r := c.Check(context.Background(), time.Second)
 	if r.Healthy {
 		t.Error("should be unhealthy when any check fails")
@@ -91,7 +91,7 @@ func TestTimeout(t *testing.T) {
 
 func TestHandler200(t *testing.T) {
 	c := health.New()
-	c.Add("db", func(ctx context.Context) error { return nil })
+	c.Add("db", func(_ context.Context) error { return nil })
 	w := httptest.NewRecorder()
 	c.Handler(time.Second).ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
 	if w.Code != http.StatusOK {
@@ -106,7 +106,7 @@ func TestHandler200(t *testing.T) {
 
 func TestHandler503(t *testing.T) {
 	c := health.New()
-	c.Add("db", func(ctx context.Context) error { return errors.New("down") })
+	c.Add("db", func(_ context.Context) error { return errors.New("down") })
 	w := httptest.NewRecorder()
 	c.Handler(time.Second).ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
 	if w.Code != http.StatusServiceUnavailable {
@@ -116,7 +116,7 @@ func TestHandler503(t *testing.T) {
 
 type mockPinger struct{ err error }
 
-func (m *mockPinger) Ping(ctx context.Context) error { return m.err }
+func (m *mockPinger) Ping(_ context.Context) error { return m.err }
 
 func TestPingCheck(t *testing.T) {
 	fn := health.PingCheck(&mockPinger{err: nil})
@@ -130,12 +130,12 @@ func TestPingCheck(t *testing.T) {
 	}
 }
 
-func TestConcurrentAdd(t *testing.T) {
+func TestConcurrentAdd(_ *testing.T) {
 	c := health.New()
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 100; i++ {
-			c.Add("check", func(ctx context.Context) error { return nil })
+			c.Add("check", func(_ context.Context) error { return nil })
 		}
 		close(done)
 	}()
