@@ -2,6 +2,7 @@ package identityclient
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,16 @@ func TestConfigured(t *testing.T) {
 	}
 	if !New(Config{ServiceTokensURL: "https://identity.internal/v1/service-tokens", BootstrapKey: "bootstrap"}).ServiceTokensConfigured() {
 		t.Fatal("expected service tokens to be configured")
+	}
+	if !New(Config{
+		ServiceTokensURL: "https://identity.internal/v1/service-tokens",
+		HTTPClient: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{Certificates: []tls.Certificate{{}}},
+			},
+		},
+	}).ServiceTokensConfigured() {
+		t.Fatal("expected mtls-authenticated service tokens to be configured")
 	}
 }
 
@@ -440,6 +451,48 @@ func TestResolveServiceTokenRefreshesExpiringTokens(t *testing.T) {
 	}
 	if identityCalls.Load() != 2 {
 		t.Fatalf("expected two identity token issuances, got %d", identityCalls.Load())
+	}
+}
+
+func TestIssueServiceTokenAllowsMTLSWithoutBootstrapKey(t *testing.T) {
+	t.Parallel()
+
+	identityServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Identity-Bootstrap-Key"); got != "" {
+			t.Fatalf("expected no bootstrap key header, got %q", got)
+		}
+		writeJSON(t, w, http.StatusCreated, map[string]any{
+			"token":      "identity-service-token",
+			"token_type": "Bearer",
+			"claims": map[string]any{
+				"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			},
+		})
+	}))
+	defer identityServer.Close()
+
+	client := New(Config{
+		ServiceTokensURL: identityServer.URL + "/v1/service-tokens",
+		RequestTimeout:   time.Second,
+		HTTPClient: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{Certificates: []tls.Certificate{{}}},
+			},
+		},
+	})
+
+	issued, err := client.IssueServiceToken(
+		context.Background(),
+		"org-123",
+		"llm-gateway",
+		[]string{"provider_refs:read"},
+		time.Minute,
+	)
+	if err != nil {
+		t.Fatalf("issue service token: %v", err)
+	}
+	if issued.GetToken() != "identity-service-token" {
+		t.Fatalf("unexpected issued token %q", issued.GetToken())
 	}
 }
 

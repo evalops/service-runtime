@@ -3,6 +3,7 @@ package identityclient
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,7 +177,7 @@ func (c *Client) Configured() bool {
 }
 
 func (c *Client) ServiceTokensConfigured() bool {
-	return c != nil && c.serviceTokensURL != "" && c.bootstrapKey != ""
+	return c != nil && c.serviceTokensURL != "" && (c.bootstrapKey != "" || c.usesMTLSClientCertificate())
 }
 
 func (c *Client) Introspect(ctx context.Context, bearerToken string) (IntrospectionResult, error) {
@@ -294,7 +295,9 @@ func (c *Client) IssueServiceToken(
 		return nil, fmt.Errorf("build_request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Identity-Bootstrap-Key", c.bootstrapKey)
+	if strings.TrimSpace(c.bootstrapKey) != "" {
+		request.Header.Set("X-Identity-Bootstrap-Key", c.bootstrapKey)
+	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -363,6 +366,25 @@ func (c *Client) ResolveServiceToken(
 	c.serviceTokenLock.Unlock()
 
 	return issued.GetToken(), nil
+}
+
+func (c *Client) usesMTLSClientCertificate() bool {
+	if c == nil || c.httpClient == nil {
+		return false
+	}
+
+	transport, ok := c.httpClient.Transport.(*http.Transport)
+	if !ok || transport == nil {
+		return false
+	}
+	return tlsConfigHasClientCertificate(transport.TLSClientConfig)
+}
+
+func tlsConfigHasClientCertificate(cfg *tls.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	return len(cfg.Certificates) > 0 || cfg.GetClientCertificate != nil
 }
 
 func introspectionResultFromProto(result *identityv1.IntrospectResponse) IntrospectionResult {
