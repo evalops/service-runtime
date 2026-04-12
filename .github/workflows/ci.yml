@@ -17,11 +17,17 @@ jobs:
 
       - name: Set up Go service environment
         uses: ./.github/actions/setup-go-service
+        with:
+          download: false
 
       - name: Test
+        env:
+          GOFLAGS: -mod=vendor
         run: go test ./... -count=1
 
       - name: Build
+        env:
+          GOFLAGS: -mod=vendor
         run: go build ./...
 
   builder-image:

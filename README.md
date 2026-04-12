@@ -173,6 +173,7 @@ Main entry points:
 
 - `identityclient.NewClient(introspectURL, requestTimeout, httpClient)`
 - `identityclient.NewMTLSClient(introspectURL, requestTimeout, tlsConfig)`
+- `identityclient.(*Client).IntrospectProto(ctx, bearerToken)`
 
 Use `NewMTLSClient` when a service follows the standard Identity client TLS
 contract and does not need to hand-build an HTTP client first.
