@@ -311,6 +311,7 @@ Main entry points:
 - `publisher.Close()`
 - `natsbus.NewPayload(message)`
 - `natsbus.UnmarshalPayload(payload, target)`
+- `natsbus.UnmarshalMessage(msg)`
 - `natsbus.NoopPublisher`
 
 Use this package when a service wants the shared stream bootstrap and event
@@ -318,8 +319,12 @@ envelope contract for change notifications without duplicating JetStream setup
 and subject formatting in each repo. `Change.Payload` carries a typed
 `google.protobuf.Any`. JSON CloudEvents remain the default wire format for
 compatibility, and services can opt into protobuf transport bytes with
-`Options.WireFormat = natsbus.WireFormatProto`. Consumers can use
-`natsbus.UnmarshalEnvelope(...)` to accept either format during rollout.
+`Options.WireFormat = natsbus.WireFormatProto` (proto envelope bytes) or
+`Options.WireFormat = natsbus.WireFormatProtoHeaders` (CloudEvent metadata in
+NATS headers with protobuf body bytes). Consumers can use
+`natsbus.UnmarshalEnvelope(...)` for legacy envelope bytes or
+`natsbus.UnmarshalMessage(...)` to accept the new header/body format alongside
+older JSON/proto envelopes during rollout.
 ## Consumption
 
 Add the module to a consumer repo:

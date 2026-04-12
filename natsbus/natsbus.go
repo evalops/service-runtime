@@ -27,8 +27,9 @@ const (
 type WireFormat string
 
 const (
-	WireFormatJSON  WireFormat = "json"
-	WireFormatProto WireFormat = "proto"
+	WireFormatJSON         WireFormat = "json"
+	WireFormatProto        WireFormat = "proto"
+	WireFormatProtoHeaders WireFormat = "proto-headers"
 )
 
 var (
@@ -39,6 +40,17 @@ var (
 	errPayloadTargetNil      = errors.New("payload_target_nil")
 	errEnvelopeEmpty         = errors.New("envelope_empty")
 	errWireFormatInvalid     = errors.New("wire_format_invalid")
+	errMessageNil            = errors.New("message_nil")
+)
+
+const (
+	headerSpecVersion     = "ce-specversion"
+	headerID              = "ce-id"
+	headerType            = "ce-type"
+	headerSource          = "ce-source"
+	headerTime            = "ce-time"
+	headerDataContentType = "content-type"
+	headerTenantID        = "ce-tenantid"
 )
 
 type Change struct {
@@ -101,7 +113,7 @@ type NoopPublisher struct{}
 
 type jetStreamClient interface {
 	CreateOrUpdateStream(ctx context.Context, cfg jetstream.StreamConfig) (jetstream.Stream, error)
-	Publish(ctx context.Context, subject string, data []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error)
+	PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error)
 }
 
 var connectNATS = func(url string, options ...nats.Option) (*nats.Conn, error) {
@@ -181,13 +193,13 @@ func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
 		return
 	}
 
-	payload, err := marshalEnvelope(envelope, normalizedWireFormat(publisher.wireFormat))
+	message, err := marshalEnvelopeMessage(subject, envelope, normalizedWireFormat(publisher.wireFormat))
 	if err != nil {
 		publisher.loggerOrDefault().Error("failed to marshal change event", "error", err, "seq", change.Sequence)
 		return
 	}
 
-	if _, err := publisher.js.Publish(ctx, subject, payload); err != nil {
+	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
 		publisher.loggerOrDefault().Error("failed to publish change event", "error", err, "seq", change.Sequence, "subject", subject)
 		return
 	}
@@ -300,6 +312,21 @@ func marshalPayloadJSON(payload *anypb.Any) (json.RawMessage, error) {
 	return json.RawMessage(data), nil
 }
 
+func marshalEnvelopeMessage(subject string, envelope Envelope, wireFormat WireFormat) (*nats.Msg, error) {
+	switch wireFormat {
+	case WireFormatJSON, WireFormatProto:
+		payload, err := marshalEnvelope(envelope, wireFormat)
+		if err != nil {
+			return nil, err
+		}
+		return &nats.Msg{Subject: subject, Data: payload}, nil
+	case WireFormatProtoHeaders:
+		return marshalEnvelopeProtoHeaders(subject, envelope)
+	default:
+		return nil, errWireFormatInvalid
+	}
+}
+
 func marshalEnvelope(envelope Envelope, wireFormat WireFormat) ([]byte, error) {
 	switch wireFormat {
 	case WireFormatJSON:
@@ -309,6 +336,40 @@ func marshalEnvelope(envelope Envelope, wireFormat WireFormat) ([]byte, error) {
 	default:
 		return nil, errWireFormatInvalid
 	}
+}
+
+func marshalEnvelopeProtoHeaders(subject string, envelope Envelope) (*nats.Msg, error) {
+	message := &nats.Msg{
+		Subject: subject,
+		Header:  nats.Header{},
+	}
+	message.Header.Set(headerSpecVersion, envelope.SpecVersion)
+	message.Header.Set(headerID, envelope.ID)
+	message.Header.Set(headerType, envelope.Type)
+	message.Header.Set(headerSource, envelope.Source)
+	if !envelope.Time.IsZero() {
+		message.Header.Set(headerTime, envelope.Time.UTC().Format(time.RFC3339))
+	}
+	if envelope.TenantID != "" {
+		message.Header.Set(headerTenantID, envelope.TenantID)
+	}
+
+	dataContentType := strings.TrimSpace(envelope.DataContentType)
+	if dataContentType == "" {
+		dataContentType = "application/protobuf"
+	}
+	message.Header.Set(headerDataContentType, dataContentType)
+
+	if envelope.Payload == nil {
+		return message, nil
+	}
+
+	payload, err := proto.Marshal(envelope.Payload)
+	if err != nil {
+		return nil, err
+	}
+	message.Data = payload
+	return message, nil
 }
 
 func marshalEnvelopeJSON(envelope Envelope) ([]byte, error) {
@@ -372,6 +433,16 @@ func UnmarshalEnvelope(data []byte) (Envelope, error) {
 	}
 }
 
+func UnmarshalMessage(message *nats.Msg) (Envelope, error) {
+	if message == nil {
+		return Envelope{}, errMessageNil
+	}
+	if hasCloudEventHeaders(message.Header) {
+		return unmarshalEnvelopeProtoHeaders(message)
+	}
+	return UnmarshalEnvelope(message.Data)
+}
+
 func unmarshalEnvelopeJSON(data []byte) (Envelope, error) {
 	var event CloudEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -420,6 +491,34 @@ func unmarshalEnvelopeProto(data []byte) (Envelope, error) {
 	}, nil
 }
 
+func unmarshalEnvelopeProtoHeaders(message *nats.Msg) (Envelope, error) {
+	recordedAt := time.Time{}
+	if rawTime := strings.TrimSpace(message.Header.Get(headerTime)); rawTime != "" {
+		parsedTime, err := time.Parse(time.RFC3339, rawTime)
+		if err != nil {
+			return Envelope{}, err
+		}
+		recordedAt = parsedTime.UTC()
+	}
+
+	payload, err := unmarshalHeaderPayload(message.Header.Get(headerDataContentType), message.Data)
+	if err != nil {
+		return Envelope{}, err
+	}
+
+	return Envelope{
+		SpecVersion:     strings.TrimSpace(message.Header.Get(headerSpecVersion)),
+		ID:              strings.TrimSpace(message.Header.Get(headerID)),
+		Type:            strings.TrimSpace(message.Header.Get(headerType)),
+		Source:          strings.TrimSpace(message.Header.Get(headerSource)),
+		Time:            recordedAt,
+		DataContentType: strings.TrimSpace(message.Header.Get(headerDataContentType)),
+		TenantID:        strings.TrimSpace(message.Header.Get(headerTenantID)),
+		Payload:         payload,
+		WireFormat:      WireFormatProtoHeaders,
+	}, nil
+}
+
 func unmarshalPayloadJSON(data json.RawMessage) (*anypb.Any, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -427,6 +526,22 @@ func unmarshalPayloadJSON(data json.RawMessage) (*anypb.Any, error) {
 	}
 	payload := &anypb.Any{}
 	if err := protojson.Unmarshal(trimmed, payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func unmarshalHeaderPayload(contentType string, data []byte) (*anypb.Any, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, nil
+	}
+
+	if strings.Contains(strings.ToLower(contentType), "application/json") {
+		return unmarshalPayloadJSON(json.RawMessage(data))
+	}
+
+	payload := &anypb.Any{}
+	if err := proto.Unmarshal(data, payload); err != nil {
 		return nil, err
 	}
 	return payload, nil
@@ -460,7 +575,19 @@ func normalizedWireFormat(wireFormat WireFormat) WireFormat {
 		return WireFormatJSON
 	case WireFormatProto:
 		return WireFormatProto
+	case WireFormatProtoHeaders:
+		return WireFormatProtoHeaders
 	default:
 		return ""
 	}
+}
+
+func hasCloudEventHeaders(header nats.Header) bool {
+	if len(header) == 0 {
+		return false
+	}
+	return strings.TrimSpace(header.Get(headerSpecVersion)) != "" &&
+		strings.TrimSpace(header.Get(headerID)) != "" &&
+		strings.TrimSpace(header.Get(headerType)) != "" &&
+		strings.TrimSpace(header.Get(headerSource)) != ""
 }

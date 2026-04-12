@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -180,6 +181,66 @@ func TestPublishChangeWrapsProtoEnvelopeWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestPublishChangeWrapsProtoHeadersWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	publisher := &Publisher{
+		js:            &fakeJetStream{},
+		logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+		wireFormat:    WireFormatProtoHeaders,
+	}
+
+	change := Change{
+		Sequence:      42,
+		TenantID:      "org-123",
+		AggregateType: "deal",
+		Operation:     "create",
+		RecordedAt:    time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	}
+
+	fake := publisher.js.(*fakeJetStream)
+	publisher.PublishChange(context.Background(), change)
+
+	if got := fake.header.Get(headerSpecVersion); got != "1.0" {
+		t.Fatalf("unexpected specversion header %q", got)
+	}
+	if got := fake.header.Get(headerType); got != "pipeline.changes.deal.create" {
+		t.Fatalf("unexpected type header %q", got)
+	}
+	if got := fake.header.Get(headerSource); got != "pipeline" {
+		t.Fatalf("unexpected source header %q", got)
+	}
+	if got := fake.header.Get(headerTenantID); got != "org-123" {
+		t.Fatalf("unexpected tenant header %q", got)
+	}
+	if got := fake.header.Get(headerDataContentType); got != "application/protobuf" {
+		t.Fatalf("unexpected content-type header %q", got)
+	}
+
+	event, err := UnmarshalMessage(&nats.Msg{
+		Subject: fake.subject,
+		Header:  fake.header,
+		Data:    fake.payload,
+	})
+	if err != nil {
+		t.Fatalf("unmarshal header envelope: %v", err)
+	}
+	if event.WireFormat != WireFormatProtoHeaders {
+		t.Fatalf("unexpected wire format %q", event.WireFormat)
+	}
+	target := &wrapperspb.StringValue{}
+	if err := UnmarshalPayload(event.Payload, target); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if target.Value != "d-1" {
+		t.Fatalf("unexpected payload value %q", target.Value)
+	}
+}
+
 func TestPublishChangeLogsPublishErrors(t *testing.T) {
 	t.Parallel()
 
@@ -299,6 +360,69 @@ func TestUnmarshalEnvelopeSupportsProtoLeadingTagByte(t *testing.T) {
 	}
 }
 
+func TestUnmarshalMessageSupportsProtoHeaders(t *testing.T) {
+	t.Parallel()
+
+	payload := MustPayload(wrapperspb.String("d-1"))
+	data, err := proto.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	event, err := UnmarshalMessage(&nats.Msg{
+		Subject: "pipeline.changes.deal.create",
+		Header:  newCloudEventHeader("evt-1", "pipeline.changes.deal.create", "pipeline", "2026-04-11T18:00:00Z", "org-123", "application/protobuf"),
+		Data:    data,
+	})
+	if err != nil {
+		t.Fatalf("unmarshal message: %v", err)
+	}
+	if event.WireFormat != WireFormatProtoHeaders {
+		t.Fatalf("unexpected wire format %q", event.WireFormat)
+	}
+	target := &wrapperspb.StringValue{}
+	if err := UnmarshalPayload(event.Payload, target); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if target.Value != "d-1" {
+		t.Fatalf("unexpected payload value %q", target.Value)
+	}
+}
+
+func TestUnmarshalMessageSupportsHeaderJSONPayload(t *testing.T) {
+	t.Parallel()
+
+	payload := MustPayload(wrapperspb.String("d-1"))
+	data, err := marshalPayloadJSON(payload)
+	if err != nil {
+		t.Fatalf("marshal payload json: %v", err)
+	}
+
+	event, err := UnmarshalMessage(&nats.Msg{
+		Subject: "pipeline.changes.deal.create",
+		Header:  newCloudEventHeader("evt-1", "pipeline.changes.deal.create", "pipeline", "", "", "application/json"),
+		Data:    data,
+	})
+	if err != nil {
+		t.Fatalf("unmarshal message: %v", err)
+	}
+	target := &wrapperspb.StringValue{}
+	if err := UnmarshalPayload(event.Payload, target); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if target.Value != "d-1" {
+		t.Fatalf("unexpected payload value %q", target.Value)
+	}
+}
+
+func TestUnmarshalMessageRejectsNilMessage(t *testing.T) {
+	t.Parallel()
+
+	if _, err := UnmarshalMessage(nil); !errors.Is(err, errMessageNil) {
+		t.Fatalf("expected errMessageNil, got %v", err)
+	}
+}
+
 func TestNewPayloadRejectsNilMessage(t *testing.T) {
 	t.Parallel()
 
@@ -318,6 +442,7 @@ func TestUnmarshalPayloadRejectsNilTarget(t *testing.T) {
 type fakeJetStream struct {
 	streamConfig jetstream.StreamConfig
 	subject      string
+	header       nats.Header
 	payload      []byte
 	publishErr   error
 }
@@ -327,11 +452,45 @@ func (fake *fakeJetStream) CreateOrUpdateStream(_ context.Context, cfg jetstream
 	return nil, nil
 }
 
-func (fake *fakeJetStream) Publish(_ context.Context, subject string, data []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
-	fake.subject = subject
-	fake.payload = append([]byte(nil), data...)
+func (fake *fakeJetStream) PublishMsg(_ context.Context, message *nats.Msg, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	fake.subject = message.Subject
+	if message.Header != nil {
+		fake.header = cloneHeader(message.Header)
+	} else {
+		fake.header = nil
+	}
+	fake.payload = append([]byte(nil), message.Data...)
 	if fake.publishErr != nil {
 		return nil, fake.publishErr
 	}
 	return &jetstream.PubAck{}, nil
+}
+
+func cloneHeader(header nats.Header) nats.Header {
+	if header == nil {
+		return nil
+	}
+	cloned := make(nats.Header, len(header))
+	for key, values := range header {
+		cloned[key] = append([]string(nil), values...)
+	}
+	return cloned
+}
+
+func newCloudEventHeader(id, eventType, source, eventTime, tenantID, contentType string) nats.Header {
+	header := nats.Header{}
+	header.Set(headerSpecVersion, "1.0")
+	header.Set(headerID, id)
+	header.Set(headerType, eventType)
+	header.Set(headerSource, source)
+	if eventTime != "" {
+		header.Set(headerTime, eventTime)
+	}
+	if tenantID != "" {
+		header.Set(headerTenantID, tenantID)
+	}
+	if contentType != "" {
+		header.Set(headerDataContentType, contentType)
+	}
+	return header
 }
