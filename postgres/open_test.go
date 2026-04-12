@@ -22,7 +22,7 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	closePostgresTestDB(t, db, mock)
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
@@ -44,9 +44,6 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	if opened != db {
 		t.Fatal("expected returned db handle")
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("sql expectations: %v", err)
-	}
 }
 
 func TestOpenAndInitReturnsLastError(t *testing.T) {
@@ -56,7 +53,6 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	defer func() { _ = db.Close() }()
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
@@ -92,5 +88,18 @@ func restoreSQLOpen(t *testing.T, opener func(string, string) (*sql.DB, error)) 
 	t.Cleanup(func() {
 		sqlOpen = previousOpen
 		sqlOpenMu.Unlock()
+	})
+}
+
+func closePostgresTestDB(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) {
+	t.Helper()
+	t.Cleanup(func() {
+		mock.ExpectClose()
+		if err := db.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("sql expectations: %v", err)
+		}
 	})
 }
