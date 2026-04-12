@@ -177,14 +177,14 @@ func TestPostgresStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
-	defer db.Close()
+	closeTestDB(t, db, mock)
 
 	store := NewPostgresStore(db)
 	now := time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec("delete from api_idempotency_keys").WithArgs(now.UTC()).WillReturnResult(sqlmock.NewResult(0, 1))
-	if err := store.Cleanup(context.Background(), now); err != nil {
-		t.Fatalf("cleanup: %v", err)
+	if cleanupErr := store.Cleanup(context.Background(), now); cleanupErr != nil {
+		t.Fatalf("cleanup: %v", cleanupErr)
 	}
 
 	mock.ExpectBegin()
@@ -215,17 +215,17 @@ func TestPostgresStoreLifecycle(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("expectations: %v", err)
-	}
 }
 
 func TestPostgresStoreReplayConflictAndPending(t *testing.T) {
 	t.Parallel()
 
 	t.Run("conflict", func(t *testing.T) {
-		db, mock, _ := sqlmock.New()
-		defer db.Close()
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock: %v", err)
+		}
+		closeTestDB(t, db, mock)
 
 		store := NewPostgresStore(db)
 		mock.ExpectBegin()
@@ -235,15 +235,18 @@ func TestPostgresStoreReplayConflictAndPending(t *testing.T) {
 				AddRow("other-hash", nil, []byte(nil), nil))
 		mock.ExpectRollback()
 
-		_, err := store.Begin(context.Background(), "scope", "key", "hash", time.Hour, time.Now())
-		if !errors.Is(err, ErrConflict) {
-			t.Fatalf("expected ErrConflict, got %v", err)
+		_, beginErr := store.Begin(context.Background(), "scope", "key", "hash", time.Hour, time.Now())
+		if !errors.Is(beginErr, ErrConflict) {
+			t.Fatalf("expected ErrConflict, got %v", beginErr)
 		}
 	})
 
 	t.Run("pending", func(t *testing.T) {
-		db, mock, _ := sqlmock.New()
-		defer db.Close()
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock: %v", err)
+		}
+		closeTestDB(t, db, mock)
 
 		store := NewPostgresStore(db)
 		mock.ExpectBegin()
@@ -253,9 +256,9 @@ func TestPostgresStoreReplayConflictAndPending(t *testing.T) {
 				AddRow("hash", nil, []byte(nil), nil))
 		mock.ExpectRollback()
 
-		_, err := store.Begin(context.Background(), "scope", "key", "hash", time.Hour, time.Now())
-		if !errors.Is(err, ErrPending) {
-			t.Fatalf("expected ErrPending, got %v", err)
+		_, beginErr := store.Begin(context.Background(), "scope", "key", "hash", time.Hour, time.Now())
+		if !errors.Is(beginErr, ErrPending) {
+			t.Fatalf("expected ErrPending, got %v", beginErr)
 		}
 	})
 }
@@ -312,4 +315,17 @@ type stubTokenVerifier struct {
 
 func (verifier stubTokenVerifier) VerifyToken(context.Context, string, []string) (authmw.VerifiedToken, error) {
 	return verifier.result, nil
+}
+
+func closeTestDB(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) {
+	t.Helper()
+	t.Cleanup(func() {
+		mock.ExpectClose()
+		if err := db.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("expectations: %v", err)
+		}
+	})
 }

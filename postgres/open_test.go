@@ -22,7 +22,11 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("sql expectations: %v", err)
+		}
+	})
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
@@ -33,8 +37,8 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SELECT 1")).WillReturnResult(sqlmock.NewResult(0, 0))
 
 	opened, err := OpenAndInit(context.Background(), "postgres://memory", func(ctx context.Context, db *sql.DB) error {
-		_, err := db.ExecContext(ctx, "SELECT 1")
-		return err
+		_, execErr := db.ExecContext(ctx, "SELECT 1")
+		return execErr
 	}, Options{
 		Retry: startup.Config{MaxAttempts: 2, Delay: 0},
 	})
@@ -43,9 +47,6 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	}
 	if opened != db {
 		t.Fatal("expected returned db handle")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("sql expectations: %v", err)
 	}
 }
 
@@ -56,7 +57,11 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("sql expectations: %v", err)
+		}
+	})
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
@@ -78,9 +83,6 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	if !strings.Contains(err.Error(), "still unavailable") {
 		t.Fatalf("expected wrapped ping error, got %v", err)
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("sql expectations: %v", err)
-	}
 }
 
 func restoreSQLOpen(t *testing.T, opener func(string, string) (*sql.DB, error)) {
@@ -92,5 +94,18 @@ func restoreSQLOpen(t *testing.T, opener func(string, string) (*sql.DB, error)) 
 	t.Cleanup(func() {
 		sqlOpen = previousOpen
 		sqlOpenMu.Unlock()
+	})
+}
+
+func closePostgresTestDB(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) {
+	t.Helper()
+	t.Cleanup(func() {
+		mock.ExpectClose()
+		if err := db.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("sql expectations: %v", err)
+		}
 	})
 }

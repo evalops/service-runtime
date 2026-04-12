@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -89,8 +88,4 @@ func (writer *responseRecorder) Write(body []byte) (int, error) {
 
 func (writer *responseRecorder) BodyBytes() []byte {
 	return append([]byte(nil), writer.body.Bytes()...)
-}
-
-func statusLabel(statusCode int) string {
-	return strconv.Itoa(statusCode)
 }

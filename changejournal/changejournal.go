@@ -240,7 +240,7 @@ func (opts WriteOptions) withDefaults(resourceType, operation string) WriteOptio
 		opts.Now = time.Now
 	}
 	if opts.NewID == nil {
-		opts.NewID = func() string { return uuid.NewString() }
+		opts.NewID = uuid.NewString
 	}
 	return opts
 }
