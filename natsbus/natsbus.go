@@ -1,6 +1,7 @@
 package natsbus
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,16 +10,25 @@ import (
 	"strings"
 	"time"
 
+	natsbusv1 "github.com/evalops/service-runtime/gen/proto/go/evalops/runtime/natsbus/v1"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
 	DefaultMaxAge = 7 * 24 * time.Hour
+)
+
+type WireFormat string
+
+const (
+	WireFormatJSON  WireFormat = "json"
+	WireFormatProto WireFormat = "proto"
 )
 
 var (
@@ -27,6 +37,8 @@ var (
 	errSubjectPrefixRequired = errors.New("subject_prefix_required")
 	errPayloadMessageNil     = errors.New("payload_message_nil")
 	errPayloadTargetNil      = errors.New("payload_target_nil")
+	errEnvelopeEmpty         = errors.New("envelope_empty")
+	errWireFormatInvalid     = errors.New("wire_format_invalid")
 )
 
 type Change struct {
@@ -51,12 +63,25 @@ type CloudEvent struct {
 	Data            json.RawMessage `json:"data"`
 }
 
+type Envelope struct {
+	SpecVersion     string
+	ID              string
+	Type            string
+	Source          string
+	Time            time.Time
+	DataContentType string
+	TenantID        string
+	Payload         *anypb.Any
+	WireFormat      WireFormat
+}
+
 type Options struct {
 	Logger      *slog.Logger
 	Retention   jetstream.RetentionPolicy
 	MaxAge      time.Duration
 	Storage     jetstream.StorageType
 	NATSOptions []nats.Option
+	WireFormat  WireFormat
 }
 
 type ChangePublisher interface {
@@ -68,6 +93,7 @@ type Publisher struct {
 	logger        *slog.Logger
 	subjectPrefix string
 	source        string
+	wireFormat    WireFormat
 	closeFunc     func()
 }
 
@@ -132,6 +158,7 @@ func ConnectWithOptions(ctx context.Context, natsURL, streamName, subjectPrefix 
 		logger:        opts.Logger,
 		subjectPrefix: subjectPrefix,
 		source:        eventSource(subjectPrefix),
+		wireFormat:    opts.WireFormat,
 		closeFunc:     connection.Close,
 	}, nil
 }
@@ -150,11 +177,11 @@ func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
 	subject := change.subject(publisher.subjectPrefix)
 	envelope, err := change.toCloudEvent(subject, publisher.source)
 	if err != nil {
-		publisher.loggerOrDefault().Error("failed to marshal change payload", "error", err, "seq", change.Sequence)
+		publisher.loggerOrDefault().Error("failed to build change envelope", "error", err, "seq", change.Sequence)
 		return
 	}
 
-	payload, err := json.Marshal(envelope)
+	payload, err := marshalEnvelope(envelope, normalizedWireFormat(publisher.wireFormat))
 	if err != nil {
 		publisher.loggerOrDefault().Error("failed to marshal change event", "error", err, "seq", change.Sequence)
 		return
@@ -182,6 +209,9 @@ func (opts Options) withDefaults() Options {
 	}
 	if opts.Storage == 0 {
 		opts.Storage = jetstream.FileStorage
+	}
+	if opts.WireFormat == "" {
+		opts.WireFormat = WireFormatJSON
 	}
 	return opts
 }
@@ -225,26 +255,21 @@ func (change Change) subject(prefix string) string {
 	return fmt.Sprintf("%s.%s.%s", strings.TrimSuffix(prefix, "."), change.AggregateType, change.Operation)
 }
 
-func (change Change) toCloudEvent(subject, source string) (CloudEvent, error) {
+func (change Change) toCloudEvent(subject, source string) (Envelope, error) {
 	recordedAt := change.RecordedAt.UTC()
 	if recordedAt.IsZero() {
 		recordedAt = time.Now().UTC()
 	}
 
-	data, err := marshalPayloadJSON(change.Payload)
-	if err != nil {
-		return CloudEvent{}, err
-	}
-
-	return CloudEvent{
+	return Envelope{
 		SpecVersion:     "1.0",
 		ID:              uuid.NewString(),
 		Type:            subject,
 		Source:          source,
-		Time:            recordedAt.Format(time.RFC3339),
-		DataContentType: "application/json",
+		Time:            recordedAt,
+		DataContentType: "application/protobuf",
 		TenantID:        change.TenantID,
-		Data:            data,
+		Payload:         change.Payload,
 	}, nil
 }
 
@@ -273,4 +298,169 @@ func marshalPayloadJSON(payload *anypb.Any) (json.RawMessage, error) {
 		return nil, err
 	}
 	return json.RawMessage(data), nil
+}
+
+func marshalEnvelope(envelope Envelope, wireFormat WireFormat) ([]byte, error) {
+	switch wireFormat {
+	case WireFormatJSON:
+		return marshalEnvelopeJSON(envelope)
+	case WireFormatProto:
+		return marshalEnvelopeProto(envelope)
+	default:
+		return nil, errWireFormatInvalid
+	}
+}
+
+func marshalEnvelopeJSON(envelope Envelope) ([]byte, error) {
+	data, err := marshalPayloadJSON(envelope.Payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(CloudEvent{
+		SpecVersion:     envelope.SpecVersion,
+		ID:              envelope.ID,
+		Type:            envelope.Type,
+		Source:          envelope.Source,
+		Time:            envelope.Time.UTC().Format(time.RFC3339),
+		DataContentType: "application/json",
+		TenantID:        envelope.TenantID,
+		Data:            data,
+	})
+}
+
+func marshalEnvelopeProto(envelope Envelope) ([]byte, error) {
+	message := &natsbusv1.EventEnvelope{
+		SpecVersion:     envelope.SpecVersion,
+		Id:              envelope.ID,
+		Type:            envelope.Type,
+		Source:          envelope.Source,
+		Time:            timestamppb.New(envelope.Time.UTC()),
+		DataContentType: "application/protobuf",
+		TenantId:        envelope.TenantID,
+		Data:            envelope.Payload,
+	}
+	return proto.Marshal(message)
+}
+
+func UnmarshalEnvelope(data []byte) (Envelope, error) {
+	if len(data) == 0 {
+		return Envelope{}, errEnvelopeEmpty
+	}
+
+	trimmed, isTrimmed := trimLeadingJSONWhitespace(data)
+	if len(trimmed) == 0 {
+		return Envelope{}, errEnvelopeEmpty
+	}
+
+	switch detectWireFormat(trimmed) {
+	case WireFormatJSON:
+		envelope, err := unmarshalEnvelopeJSON(trimmed)
+		if err == nil {
+			return envelope, nil
+		}
+		if isTrimmed {
+			protoEnvelope, protoErr := unmarshalEnvelopeProto(data)
+			if protoErr == nil {
+				return protoEnvelope, nil
+			}
+		}
+		return Envelope{}, err
+	case WireFormatProto:
+		return unmarshalEnvelopeProto(data)
+	default:
+		return Envelope{}, errWireFormatInvalid
+	}
+}
+
+func unmarshalEnvelopeJSON(data []byte) (Envelope, error) {
+	var event CloudEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		return Envelope{}, err
+	}
+	recordedAt, err := time.Parse(time.RFC3339, event.Time)
+	if err != nil {
+		return Envelope{}, err
+	}
+	payload, err := unmarshalPayloadJSON(event.Data)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return Envelope{
+		SpecVersion:     event.SpecVersion,
+		ID:              event.ID,
+		Type:            event.Type,
+		Source:          event.Source,
+		Time:            recordedAt.UTC(),
+		DataContentType: event.DataContentType,
+		TenantID:        event.TenantID,
+		Payload:         payload,
+		WireFormat:      WireFormatJSON,
+	}, nil
+}
+
+func unmarshalEnvelopeProto(data []byte) (Envelope, error) {
+	message := &natsbusv1.EventEnvelope{}
+	if err := proto.Unmarshal(data, message); err != nil {
+		return Envelope{}, err
+	}
+	recordedAt := time.Time{}
+	if message.Time != nil {
+		recordedAt = message.Time.AsTime().UTC()
+	}
+	return Envelope{
+		SpecVersion:     message.SpecVersion,
+		ID:              message.Id,
+		Type:            message.Type,
+		Source:          message.Source,
+		Time:            recordedAt,
+		DataContentType: message.DataContentType,
+		TenantID:        message.TenantId,
+		Payload:         message.Data,
+		WireFormat:      WireFormatProto,
+	}, nil
+}
+
+func unmarshalPayloadJSON(data json.RawMessage) (*anypb.Any, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	payload := &anypb.Any{}
+	if err := protojson.Unmarshal(trimmed, payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func detectWireFormat(data []byte) WireFormat {
+	if len(data) == 0 {
+		return ""
+	}
+	if data[0] == '{' {
+		return WireFormatJSON
+	}
+	return WireFormatProto
+}
+
+func trimLeadingJSONWhitespace(data []byte) ([]byte, bool) {
+	for index, value := range data {
+		switch value {
+		case ' ', '\n', '\r', '\t':
+			continue
+		default:
+			return data[index:], index > 0
+		}
+	}
+	return nil, false
+}
+
+func normalizedWireFormat(wireFormat WireFormat) WireFormat {
+	switch wireFormat {
+	case "", WireFormatJSON:
+		return WireFormatJSON
+	case WireFormatProto:
+		return WireFormatProto
+	default:
+		return ""
+	}
 }

@@ -315,8 +315,10 @@ Main entry points:
 Use this package when a service wants the shared stream bootstrap and event
 envelope contract for change notifications without duplicating JetStream setup
 and subject formatting in each repo. `Change.Payload` carries a typed
-`google.protobuf.Any`, and the published CloudEvents `data` field stays JSON by
-using the protobuf JSON encoding with the embedded `@type` URL.
+`google.protobuf.Any`. JSON CloudEvents remain the default wire format for
+compatibility, and services can opt into protobuf transport bytes with
+`Options.WireFormat = natsbus.WireFormatProto`. Consumers can use
+`natsbus.UnmarshalEnvelope(...)` to accept either format during rollout.
 ## Consumption
 
 Add the module to a consumer repo:
