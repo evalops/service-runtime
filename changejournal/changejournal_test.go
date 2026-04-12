@@ -1,8 +1,10 @@
 package changejournal
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -199,7 +201,7 @@ func TestWriteMutationMarshalsProtoPayloadWithTypeURL(t *testing.T) {
 			nil,
 			int64(1),
 			now,
-			`{"@type":"type.googleapis.com/google.protobuf.StringValue", "value":"d-1"}`,
+			jsonStringArg(t, `{"@type":"type.googleapis.com/google.protobuf.StringValue", "value":"d-1"}`),
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"seq"}).AddRow(12))
 
@@ -223,6 +225,37 @@ func TestWriteMutationMarshalsProtoPayloadWithTypeURL(t *testing.T) {
 	if sequence != 12 {
 		t.Fatalf("expected sequence 12, got %d", sequence)
 	}
+}
+
+type jsonArgument struct {
+	expected string
+}
+
+func (arg jsonArgument) Match(value driver.Value) bool {
+	actual, ok := value.(string)
+	if !ok {
+		return false
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(actual)); err != nil {
+		return false
+	}
+	return buf.String() == arg.expected
+}
+
+func jsonStringArg(t *testing.T, value string) sqlmock.Argument {
+	t.Helper()
+	return jsonArgument{expected: compactJSON(t, value)}
+}
+
+func compactJSON(t *testing.T, value string) string {
+	t.Helper()
+
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(value)); err != nil {
+		t.Fatalf("compact json: %v", err)
+	}
+	return buf.String()
 }
 
 func TestWriteMutationDatabaseErrors(t *testing.T) {
