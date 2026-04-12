@@ -174,9 +174,15 @@ Main entry points:
 - `identityclient.NewClient(introspectURL, requestTimeout, httpClient)`
 - `identityclient.NewMTLSClient(introspectURL, requestTimeout, tlsConfig)`
 - `identityclient.(*Client).IntrospectProto(ctx, bearerToken)`
+- `identityclient.New(identityclient.Config{...})`
 
 Use `NewMTLSClient` when a service follows the standard Identity client TLS
 contract and does not need to hand-build an HTTP client first.
+
+Use `identityclient.New(...)` when a service also needs bootstrap-key-backed
+`IssueServiceToken(...)` / `ResolveServiceToken(...)`, org/service/scope-aware
+service token caching, or cached introspection fallback during transient
+Identity outages.
 
 Example:
 
