@@ -3,13 +3,15 @@ package identityclient
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
+	identityv1 "github.com/evalops/identity/gen/proto/go/identity/v1"
 	"github.com/evalops/service-runtime/mtls"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 var (
@@ -63,8 +65,16 @@ func (c *Client) Configured() bool {
 }
 
 func (c *Client) Introspect(ctx context.Context, bearerToken string) (IntrospectionResult, error) {
+	result, err := c.IntrospectProto(ctx, bearerToken)
+	if err != nil {
+		return IntrospectionResult{}, err
+	}
+	return introspectionResultFromProto(result), nil
+}
+
+func (c *Client) IntrospectProto(ctx context.Context, bearerToken string) (*identityv1.IntrospectionResult, error) {
 	if !c.Configured() {
-		return IntrospectionResult{}, ErrIdentityNotConfigured
+		return nil, ErrIdentityNotConfigured
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.requestTimeout)
 	defer cancel()
@@ -76,14 +86,14 @@ func (c *Client) Introspect(ctx context.Context, bearerToken string) (Introspect
 		bytes.NewReader([]byte(`{}`)),
 	)
 	if err != nil {
-		return IntrospectionResult{}, fmt.Errorf("build_request: %w", err)
+		return nil, fmt.Errorf("build_request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+bearerToken)
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return IntrospectionResult{}, fmt.Errorf("%w: %v", ErrIdentityUnavailable, err)
+		return nil, fmt.Errorf("%w: %v", ErrIdentityUnavailable, err)
 	}
 	defer response.Body.Close()
 
@@ -91,17 +101,40 @@ func (c *Client) Introspect(ctx context.Context, bearerToken string) (Introspect
 		if response.StatusCode == http.StatusBadRequest ||
 			response.StatusCode == http.StatusUnauthorized ||
 			response.StatusCode == http.StatusForbidden {
-			return IntrospectionResult{}, ErrInvalidToken
+			return nil, ErrInvalidToken
 		}
-		return IntrospectionResult{}, fmt.Errorf("%w: status_%d", ErrIdentityUnavailable, response.StatusCode)
+		return nil, fmt.Errorf("%w: status_%d", ErrIdentityUnavailable, response.StatusCode)
 	}
 
-	var result IntrospectionResult
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return IntrospectionResult{}, fmt.Errorf("%w: decode_response: %v", ErrIdentityUnavailable, err)
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read_response: %v", ErrIdentityUnavailable, err)
 	}
-	if !result.Active {
-		return IntrospectionResult{}, ErrInactiveToken
+	var result identityv1.IntrospectionResult
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("%w: decode_response: %v", ErrIdentityUnavailable, err)
 	}
-	return result, nil
+	if result.Active == nil || !result.GetActive() {
+		return nil, ErrInactiveToken
+	}
+	return &result, nil
+}
+
+func introspectionResultFromProto(result *identityv1.IntrospectionResult) IntrospectionResult {
+	if result == nil {
+		return IntrospectionResult{}
+	}
+	return IntrospectionResult{
+		Active:         result.GetActive(),
+		AgentType:      result.GetAgentType(),
+		Capabilities:   append([]string(nil), result.GetCapabilities()...),
+		OrganizationID: result.GetOrganizationId(),
+		RunID:          result.GetRunId(),
+		Scopes:         append([]string(nil), result.GetScopes()...),
+		Service:        result.GetService(),
+		Subject:        result.GetSubject(),
+		Surface:        result.GetSurface(),
+		TokenType:      result.GetTokenType(),
+		UserSubject:    result.GetUserSubject(),
+	}
 }
