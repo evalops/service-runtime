@@ -44,10 +44,9 @@ jobs:
           cache: false
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.11.4
-          install-mode: goinstall
+          version: v2.11.3
           args: --timeout=5m
 
   builder-image:

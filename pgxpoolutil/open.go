@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Options configures pgxpool connection behaviour.
 type Options struct {
 	PingTimeout time.Duration
 	Retry       startup.Config
@@ -26,6 +27,7 @@ var (
 	}
 )
 
+// Open connects to a Postgres database via pgxpool, waiting for it to become ready.
 func Open(ctx context.Context, dsn string, opts Options) (*pgxpool.Pool, error) {
 	opts = withDefaults(opts)
 
@@ -35,8 +37,8 @@ func Open(ctx context.Context, dsn string, opts Options) (*pgxpool.Pool, error) 
 			return nil, fmt.Errorf("parse_pgxpool_config: %w", err)
 		}
 		if opts.Configure != nil {
-			if configureErr := opts.Configure(cfg); configureErr != nil {
-				return nil, fmt.Errorf("configure_pgxpool: %w", configureErr)
+			if err := opts.Configure(cfg); err != nil {
+				return nil, fmt.Errorf("configure_pgxpool: %w", err)
 			}
 		}
 

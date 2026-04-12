@@ -12,6 +12,7 @@ type contextKey string
 
 const actorContextKey contextKey = "actor"
 
+// Actor represents an authenticated principal performing an action.
 type Actor struct {
 	Type           string            `json:"type"`
 	ID             string            `json:"id"`
@@ -19,37 +20,44 @@ type Actor struct {
 	Attributes     map[string]string `json:"attributes,omitempty"`
 }
 
+// VerifiedToken is the result of a successful token verification.
 type VerifiedToken struct {
 	Actor  Actor
 	Scopes []string
 }
 
+// ValidatedAPIKey is the result of a successful API key validation.
 type ValidatedAPIKey struct {
 	ID             string
 	OrganizationID string
 	Scopes         []string
 }
 
+// TokenVerifier verifies bearer tokens against the identity service.
 type TokenVerifier interface {
 	VerifyToken(ctx context.Context, token string, requiredScopes []string) (VerifiedToken, error)
 }
 
+// APIKeyValidator validates API keys against the identity service.
 type APIKeyValidator interface {
 	ValidateAPIKey(ctx context.Context, token string) (ValidatedAPIKey, error)
 }
 
+// Config holds the dependencies for a Middleware.
 type Config struct {
 	TokenVerifier    TokenVerifier
 	APIKeyValidator  APIKeyValidator
 	IsForbiddenError func(error) bool
 }
 
+// Middleware enforces authentication on HTTP handlers.
 type Middleware struct {
 	tokenVerifier    TokenVerifier
 	apiKeyValidator  APIKeyValidator
 	isForbiddenError func(error) bool
 }
 
+// New creates a Middleware from the given Config.
 func New(config Config) *Middleware {
 	return &Middleware{
 		tokenVerifier:    config.TokenVerifier,
@@ -58,6 +66,7 @@ func New(config Config) *Middleware {
 	}
 }
 
+// WithAuth returns an HTTP middleware that requires a valid bearer token with the given scopes.
 func (middleware *Middleware) WithAuth(scopes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -83,11 +92,13 @@ func (middleware *Middleware) WithAuth(scopes ...string) func(http.Handler) http
 	}
 }
 
+// ActorFromContext retrieves the authenticated Actor from context.
 func ActorFromContext(ctx context.Context) (Actor, bool) {
 	actor, ok := ctx.Value(actorContextKey).(Actor)
 	return actor, ok
 }
 
+// HasAllScopes reports whether all required scopes are present in available.
 func HasAllScopes(available []string, required []string) bool {
 	for _, requirement := range required {
 		found := false
@@ -104,6 +115,7 @@ func HasAllScopes(available []string, required []string) bool {
 	return true
 }
 
+// BearerToken extracts the token from an Authorization: Bearer <token> header.
 func BearerToken(header string) (string, bool) {
 	parts := strings.SplitN(header, " ", 2)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
