@@ -85,6 +85,7 @@ type websocketReader struct {
 	nl       bool
 	dc       *wsDecompressor
 	nc       *Conn
+	closeErr error
 }
 
 type wsDecompressor struct {
@@ -202,6 +203,15 @@ func (r *websocketReader) Read(p []byte) (int, error) {
 			return r.drainPending(p), nil
 		}
 
+		// If we have a deferred close error (from a previous Read that
+		// had both data frames and a close frame), return it now that
+		// pending data has been drained.
+		if r.closeErr != nil {
+			err := r.closeErr
+			r.closeErr = nil
+			return 0, err
+		}
+
 		// Get some data from the underlying reader.
 		n, err := r.r.Read(p)
 		if err != nil {
@@ -285,6 +295,13 @@ func (r *websocketReader) Read(p []byte) (int, error) {
 		if wsIsControlFrame(frameType) {
 			pos, err = r.handleControlFrame(frameType, buf, pos, rem)
 			if err != nil {
+				// If we already have pending data (e.g. a -ERR message
+				// that arrived before this close frame), defer the error
+				// so the pending data can be returned to the caller first.
+				if len(r.pending) > 0 {
+					r.closeErr = err
+					break
+				}
 				return 0, err
 			}
 			rem = 0
@@ -610,6 +627,9 @@ func (nc *Conn) wsInitHandshake(u *url.URL) error {
 	if compress {
 		req.Header.Add("Sec-WebSocket-Extensions", wsPMCReqHeaderValue)
 	}
+	if err := nc.wsUpdateConnectionHeaders(req); err != nil {
+		return err
+	}
 	if err := req.Write(nc.conn); err != nil {
 		return err
 	}
@@ -726,6 +746,25 @@ func (nc *Conn) wsEnqueueControlMsg(needsLock bool, frameType wsOpCode, payload 
 		wr.ctrlFrames = append(wr.ctrlFrames, payload)
 	}
 	nc.bw.flush()
+}
+
+func (nc *Conn) wsUpdateConnectionHeaders(req *http.Request) error {
+	var headers http.Header
+	var err error
+	if nc.Opts.WebSocketConnectionHeadersHandler != nil {
+		headers, err = nc.Opts.WebSocketConnectionHeadersHandler()
+		if err != nil {
+			return err
+		}
+	} else {
+		headers = nc.Opts.WebSocketConnectionHeaders
+	}
+	for key, values := range headers {
+		for _, val := range values {
+			req.Header.Add(key, val)
+		}
+	}
+	return nil
 }
 
 func wsPMCExtensionSupport(header http.Header) (bool, bool) {
