@@ -54,6 +54,12 @@ func TestConfigured(t *testing.T) {
 	}).ServiceTokensConfigured() {
 		t.Fatal("expected mtls-authenticated service tokens to be configured")
 	}
+	if New(Config{
+		ServiceTokensURL: "https://identity.internal/v1/service-tokens",
+		BootstrapKey:     "   ",
+	}).ServiceTokensConfigured() {
+		t.Fatal("expected whitespace-only bootstrap key to be treated as unset")
+	}
 }
 
 func TestIntrospectSuccess(t *testing.T) {
