@@ -33,8 +33,8 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("SELECT 1")).WillReturnResult(sqlmock.NewResult(0, 0))
 
 	opened, err := OpenAndInit(context.Background(), "postgres://memory", func(ctx context.Context, db *sql.DB) error {
-		_, execErr := db.ExecContext(ctx, "SELECT 1")
-		return execErr
+		_, err := db.ExecContext(ctx, "SELECT 1")
+		return err
 	}, Options{
 		Retry: startup.Config{MaxAttempts: 2, Delay: 0},
 	})
@@ -73,6 +73,9 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "still unavailable") {
 		t.Fatalf("expected wrapped ping error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
 	}
 }
 

@@ -16,6 +16,7 @@ type contextKey string
 
 const requestIDContextKey contextKey = "request_id"
 
+// DecodeJSON decodes the request body as JSON into value, writing a 400 on failure.
 func DecodeJSON(writer http.ResponseWriter, request *http.Request, value any) bool {
 	decoder := json.NewDecoder(request.Body)
 	if err := decoder.Decode(value); err != nil {
@@ -32,6 +33,7 @@ func DecodeJSON(writer http.ResponseWriter, request *http.Request, value any) bo
 	return true
 }
 
+// PathUUID parses a UUID path parameter, writing a 400 if it is invalid.
 func PathUUID(writer http.ResponseWriter, raw, name string) (uuid.UUID, bool) {
 	identifier, err := uuid.Parse(raw)
 	if err != nil {
@@ -44,6 +46,7 @@ func PathUUID(writer http.ResponseWriter, raw, name string) (uuid.UUID, bool) {
 	return identifier, true
 }
 
+// RequireIfMatchVersion reads and parses the If-Match header, writing a 428 if absent or 400 if invalid.
 func RequireIfMatchVersion(writer http.ResponseWriter, request *http.Request) (int64, bool) {
 	header := strings.TrimSpace(request.Header.Get("If-Match"))
 	if header == "" {
@@ -60,6 +63,7 @@ func RequireIfMatchVersion(writer http.ResponseWriter, request *http.Request) (i
 	return version, true
 }
 
+// ParseInt64Query parses an integer query parameter, returning fallback if absent or invalid.
 func ParseInt64Query(request *http.Request, key string, fallback int64) int64 {
 	raw := strings.TrimSpace(request.URL.Query().Get(key))
 	if raw == "" {
@@ -74,11 +78,13 @@ func ParseInt64Query(request *http.Request, key string, fallback int64) int64 {
 	return value
 }
 
+// RequestIDFromContext retrieves the request ID from context.
 func RequestIDFromContext(ctx context.Context) (string, bool) {
 	requestID, ok := ctx.Value(requestIDContextKey).(string)
 	return requestID, ok && strings.TrimSpace(requestID) != ""
 }
 
+// RequestMetadata returns a map of common request fields suitable for structured logging.
 func RequestMetadata(request *http.Request) map[string]any {
 	metadata := map[string]any{
 		"method": request.Method,
