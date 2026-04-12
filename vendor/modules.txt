@@ -24,6 +24,9 @@ github.com/dgryski/go-rendezvous
 # github.com/evalops/identity v0.0.0-20260412064019-c59a712c2c28
 ## explicit; go 1.25.0
 github.com/evalops/identity/gen/proto/go/identity/v1
+# github.com/evalops/proto v0.0.0-20260412071349-ea3a75bae80b
+## explicit; go 1.23.0
+github.com/evalops/proto/gen/go/events/v1
 # github.com/go-chi/chi/v5 v5.2.5
 ## explicit; go 1.22
 github.com/go-chi/chi/v5
@@ -189,5 +192,6 @@ google.golang.org/protobuf/reflect/protoregistry
 google.golang.org/protobuf/runtime/protoiface
 google.golang.org/protobuf/runtime/protoimpl
 google.golang.org/protobuf/types/known/anypb
+google.golang.org/protobuf/types/known/structpb
 google.golang.org/protobuf/types/known/timestamppb
 google.golang.org/protobuf/types/known/wrapperspb

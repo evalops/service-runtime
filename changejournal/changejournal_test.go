@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	eventsv1 "github.com/evalops/proto/gen/go/events/v1"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -377,6 +378,77 @@ func TestChangeAndAuditEntryJSONShapes(t *testing.T) {
 	}
 	if _, err := json.Marshal(audit); err != nil {
 		t.Fatalf("marshal audit: %v", err)
+	}
+}
+
+func TestChangeProtoRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	change := Change{
+		Sequence:         7,
+		OrganizationID:   "org-123",
+		AggregateType:    "deal",
+		AggregateID:      "deal-1",
+		Operation:        "update",
+		ActorType:        "service",
+		ActorID:          "pipeline",
+		AggregateVersion: 9,
+		RecordedAt:       time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		Payload:          json.RawMessage(`{"name":"Ada","version":9}`),
+	}
+
+	message, err := change.ToProto()
+	if err != nil {
+		t.Fatalf("to proto: %v", err)
+	}
+	if message.GetOrganizationId() != "org-123" {
+		t.Fatalf("unexpected organization id %q", message.GetOrganizationId())
+	}
+	if message.GetPayload().AsMap()["name"] != "Ada" {
+		t.Fatalf("unexpected payload %#v", message.GetPayload().AsMap())
+	}
+
+	decoded, err := ChangeFromProto(message)
+	if err != nil {
+		t.Fatalf("from proto: %v", err)
+	}
+	if decoded.Sequence != change.Sequence {
+		t.Fatalf("unexpected sequence %d", decoded.Sequence)
+	}
+	if decoded.AggregateID != change.AggregateID {
+		t.Fatalf("unexpected aggregate id %q", decoded.AggregateID)
+	}
+	if compactJSON(t, string(decoded.Payload)) != compactJSON(t, string(change.Payload)) {
+		t.Fatalf("unexpected payload %s", decoded.Payload)
+	}
+}
+
+func TestChangeToProtoPreservesNilPayload(t *testing.T) {
+	t.Parallel()
+
+	message, err := (Change{}).ToProto()
+	if err != nil {
+		t.Fatalf("to proto: %v", err)
+	}
+	if message.GetPayload() != nil {
+		t.Fatalf("expected nil payload, got %#v", message.GetPayload())
+	}
+
+	decoded, err := ChangeFromProto(&eventsv1.Change{})
+	if err != nil {
+		t.Fatalf("from proto: %v", err)
+	}
+	if decoded.Payload != nil {
+		t.Fatalf("expected nil payload, got %#v", decoded.Payload)
+	}
+}
+
+func TestChangeToProtoRejectsNonObjectPayload(t *testing.T) {
+	t.Parallel()
+
+	_, err := (Change{Payload: json.RawMessage(`["not","an","object"]`)}).ToProto()
+	if err == nil || !strings.Contains(err.Error(), "change_payload_not_object") {
+		t.Fatalf("expected non-object payload error, got %v", err)
 	}
 }
 
