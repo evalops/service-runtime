@@ -65,7 +65,11 @@ func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 		return http.DefaultClient, nil
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("default_http_transport_invalid")
+	}
+	transport := baseTransport.Clone()
 	transport.TLSClientConfig = tlsConfig
 	return &http.Client{Transport: transport}, nil
 }

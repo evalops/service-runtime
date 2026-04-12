@@ -76,8 +76,8 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 			request.Body = io.NopCloser(bytes.NewReader(body))
 
 			now := opts.Now().UTC()
-			if err := store.Cleanup(request.Context(), now); err != nil {
-				httpkit.WriteError(writer, http.StatusInternalServerError, "idempotency_failed", err.Error())
+			if cleanupErr := store.Cleanup(request.Context(), now); cleanupErr != nil {
+				httpkit.WriteError(writer, http.StatusInternalServerError, "idempotency_failed", cleanupErr.Error())
 				return
 			}
 
@@ -102,6 +102,7 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 				}
 				writer.Header().Set("X-Idempotent-Replay", "true")
 				writer.WriteHeader(replay.StatusCode)
+				//nolint:gosec // Replay returns the previously stored response for the same idempotent request.
 				_, _ = writer.Write(replay.Body)
 				return
 			}
@@ -182,11 +183,11 @@ func (store *PostgresStore) Begin(ctx context.Context, scope, key, requestHash s
 	err = tx.QueryRowContext(ctx, getIdempotencyKeySQL, scope, key).Scan(&storedHash, &responseCode, &body, &contentType)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		if _, err := tx.ExecContext(ctx, insertIdempotencyKeySQL, scope, key, requestHash, now.UTC(), now.UTC().Add(ttl)); err != nil {
-			return nil, err
+		if _, execErr := tx.ExecContext(ctx, insertIdempotencyKeySQL, scope, key, requestHash, now.UTC(), now.UTC().Add(ttl)); execErr != nil {
+			return nil, execErr
 		}
-		if err := tx.Commit(); err != nil {
-			return nil, err
+		if commitErr := tx.Commit(); commitErr != nil {
+			return nil, commitErr
 		}
 		return nil, nil
 	case err != nil:

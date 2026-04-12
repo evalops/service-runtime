@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -216,7 +217,9 @@ func (c *Client) IntrospectProto(ctx context.Context, bearerToken string) (*iden
 		}
 		return nil, fmt.Errorf("%w: identity_request: %v", ErrIdentityUnavailable, err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 
 	switch response.StatusCode {
 	case http.StatusOK:
@@ -275,7 +278,7 @@ func (c *Client) IssueServiceToken(
 		Service:        service,
 		OrganizationId: organizationID,
 		Scopes:         scopes,
-		TtlSeconds:     int32(max(int(ttl.Seconds()), 1)),
+		TtlSeconds:     ttlSecondsForRequest(ttl),
 	}
 	body, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(payload)
 	if err != nil {
@@ -303,7 +306,9 @@ func (c *Client) IssueServiceToken(
 	if err != nil {
 		return nil, fmt.Errorf("identity_request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 
 	if response.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("issue_service_token: unexpected_status_%d", response.StatusCode)
@@ -491,4 +496,19 @@ func cloneIntrospectionResult(result *identityv1.IntrospectResponse) *identityv1
 
 func (c cachedServiceToken) expiringSoon() bool {
 	return time.Now().Add(10 * time.Second).After(c.expiresAt)
+}
+
+func ttlSecondsForRequest(ttl time.Duration) int32 {
+	if ttl <= 0 {
+		return 1
+	}
+
+	seconds := int64(ttl / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	if seconds > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(seconds)
 }
