@@ -9,10 +9,12 @@ import (
 	"strconv"
 )
 
+// Versioned is implemented by domain objects that carry a version field.
 type Versioned interface {
 	GetVersion() int64
 }
 
+// CaptureResponseWriter is an http.ResponseWriter that captures status code and body for later inspection.
 type CaptureResponseWriter struct {
 	http.ResponseWriter
 	statusCode  int
@@ -20,12 +22,14 @@ type CaptureResponseWriter struct {
 	body        bytes.Buffer
 }
 
+// WriteJSON writes a JSON-encoded value with the given HTTP status code.
 func WriteJSON(writer http.ResponseWriter, status int, value any) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
 	_ = jsonNewEncoder(writer).Encode(value)
 }
 
+// WriteMutationJSON writes a JSON mutation response with X-Change-Seq and ETag headers.
 func WriteMutationJSON(writer http.ResponseWriter, status int, payload any, sequence int64) {
 	writer.Header().Set("X-Change-Seq", strconv.FormatInt(sequence, 10))
 	if versioned, ok := payload.(Versioned); ok {
@@ -34,10 +38,12 @@ func WriteMutationJSON(writer http.ResponseWriter, status int, payload any, sequ
 	WriteJSON(writer, status, payload)
 }
 
+// SetETag sets the ETag response header to the given numeric version.
 func SetETag(writer http.ResponseWriter, version int64) {
 	writer.Header().Set("ETag", `"`+strconv.FormatInt(version, 10)+`"`)
 }
 
+// NewCaptureResponseWriter wraps writer in a CaptureResponseWriter.
 func NewCaptureResponseWriter(writer http.ResponseWriter) *CaptureResponseWriter {
 	return &CaptureResponseWriter{
 		ResponseWriter: writer,
@@ -45,14 +51,17 @@ func NewCaptureResponseWriter(writer http.ResponseWriter) *CaptureResponseWriter
 	}
 }
 
+// StatusCode returns the HTTP status code written to the response.
 func (writer *CaptureResponseWriter) StatusCode() int {
 	return writer.statusCode
 }
 
+// BodyBytes returns a copy of the response body bytes written so far.
 func (writer *CaptureResponseWriter) BodyBytes() []byte {
 	return append([]byte(nil), writer.body.Bytes()...)
 }
 
+// WriteHeader records the status code and delegates to the underlying ResponseWriter.
 func (writer *CaptureResponseWriter) WriteHeader(statusCode int) {
 	if writer.wroteHeader {
 		return
@@ -70,12 +79,14 @@ func (writer *CaptureResponseWriter) Write(body []byte) (int, error) {
 	return writer.ResponseWriter.Write(body)
 }
 
+// Flush implements http.Flusher by delegating to the underlying writer.
 func (writer *CaptureResponseWriter) Flush() {
 	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
 }
 
+// Hijack implements http.Hijacker by delegating to the underlying writer.
 func (writer *CaptureResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hijacker, ok := writer.ResponseWriter.(http.Hijacker)
 	if !ok {
@@ -84,6 +95,7 @@ func (writer *CaptureResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, erro
 	return hijacker.Hijack()
 }
 
+// Push implements http.Pusher by delegating to the underlying writer.
 func (writer *CaptureResponseWriter) Push(target string, options *http.PushOptions) error {
 	pusher, ok := writer.ResponseWriter.(http.Pusher)
 	if !ok {
@@ -92,6 +104,7 @@ func (writer *CaptureResponseWriter) Push(target string, options *http.PushOptio
 	return pusher.Push(target, options)
 }
 
+// ReadFrom implements io.ReaderFrom by copying from reader through Write.
 func (writer *CaptureResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
 	return io.Copy(writer, reader)
 }

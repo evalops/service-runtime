@@ -9,10 +9,12 @@ type contextKey string
 
 const requestStateContextKey contextKey = "observability_request_state"
 
+// RequestState holds per-request observability data stored in context.
 type RequestState struct {
 	WideEvent *WideEvent
 }
 
+// WideEvent carries structured event data for structured log lines.
 type WideEvent struct {
 	Name         string         `json:"name"`
 	Category     string         `json:"category"`
@@ -21,6 +23,7 @@ type WideEvent struct {
 	Attributes   map[string]any `json:"attributes,omitempty"`
 }
 
+// NewWideEvent creates a WideEvent with the given classification fields.
 func NewWideEvent(name, category, resourceType, action string) *WideEvent {
 	return &WideEvent{
 		Name:         name,
@@ -31,6 +34,7 @@ func NewWideEvent(name, category, resourceType, action string) *WideEvent {
 	}
 }
 
+// AddAttributes merges the given attributes into the WideEvent.
 func (event *WideEvent) AddAttributes(attributes map[string]any) *WideEvent {
 	if event == nil {
 		return nil
@@ -44,11 +48,13 @@ func (event *WideEvent) AddAttributes(attributes map[string]any) *WideEvent {
 	return event
 }
 
+// RequestStateFromContext retrieves the RequestState from context.
 func RequestStateFromContext(ctx context.Context) (*RequestState, bool) {
 	state, ok := ctx.Value(requestStateContextKey).(*RequestState)
 	return state, ok && state != nil
 }
 
+// WideEventFromContext retrieves a clone of the current WideEvent from context.
 func WideEventFromContext(ctx context.Context) (*WideEvent, bool) {
 	state, ok := RequestStateFromContext(ctx)
 	if !ok || state.WideEvent == nil {
@@ -57,6 +63,7 @@ func WideEventFromContext(ctx context.Context) (*WideEvent, bool) {
 	return state.WideEvent.Clone(), true
 }
 
+// SetWideEvent replaces the WideEvent stored in request context.
 func SetWideEvent(request *http.Request, event *WideEvent) {
 	state, ok := RequestStateFromContext(request.Context())
 	if !ok || event == nil {
@@ -65,6 +72,7 @@ func SetWideEvent(request *http.Request, event *WideEvent) {
 	state.WideEvent = event.Clone()
 }
 
+// AddWideEventAttributes merges attributes into the WideEvent stored in request context.
 func AddWideEventAttributes(request *http.Request, attributes map[string]any) {
 	state, ok := RequestStateFromContext(request.Context())
 	if !ok {
@@ -85,6 +93,7 @@ func withRequestState(request *http.Request) *http.Request {
 	return request.WithContext(ctx)
 }
 
+// Clone returns a deep copy of the WideEvent.
 func (event *WideEvent) Clone() *WideEvent {
 	if event == nil {
 		return nil

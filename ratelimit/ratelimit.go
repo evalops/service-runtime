@@ -6,6 +6,7 @@ package ratelimit
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -141,13 +142,13 @@ func (l *Limiter) Len() int {
 
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP (the client, not intermediary proxies).
-		for i := 0; i < len(xff); i++ {
-			if xff[i] == ',' {
-				return xff[:i]
+		// Use the most recent forwarded hop because the leftmost value is client-controlled.
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if candidate := strings.TrimSpace(parts[i]); candidate != "" {
+				return candidate
 			}
 		}
-		return xff
 	}
 	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
 		return xri

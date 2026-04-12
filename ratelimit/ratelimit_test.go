@@ -167,7 +167,7 @@ func TestCleanup(t *testing.T) {
 	}
 }
 
-func TestXForwardedFor(t *testing.T) {
+func TestXForwardedForUsesLastHop(t *testing.T) {
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1
 	cfg.Burst = 1
@@ -178,7 +178,7 @@ func TestXForwardedFor(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 
-	// Two requests with different X-Forwarded-For should use different buckets.
+	// Spoofed leftmost values should not bypass the bucket selected by the trusted last hop.
 	req1 := httptest.NewRequest("GET", "/v1/test", nil)
 	req1.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.1")
 	req2 := httptest.NewRequest("GET", "/v1/test", nil)
@@ -186,11 +186,10 @@ func TestXForwardedFor(t *testing.T) {
 
 	w1 := httptest.NewRecorder()
 	handler.ServeHTTP(w1, req1)
-	l.Allow("203.0.113.1") // exhaust IP1's bucket
 
 	w2 := httptest.NewRecorder()
 	handler.ServeHTTP(w2, req2)
-	if w2.Code != 200 {
-		t.Errorf("different XFF IP should have separate bucket, got %d", w2.Code)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Errorf("spoofed XFF should not bypass the shared bucket, got %d", w2.Code)
 	}
 }

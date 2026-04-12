@@ -8,12 +8,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// DBStatsOptions configures Prometheus DB stats registration.
 type DBStatsOptions struct {
 	Registerer prometheus.Registerer
 }
 
 var dbStatsRegistrations sync.Map
 
+// RegisterDBStats registers Prometheus gauges for the given database stats function.
 func RegisterDBStats(serviceName string, statFunc func() sql.DBStats, opts DBStatsOptions) error {
 	if statFunc == nil {
 		return nil
@@ -24,10 +26,7 @@ func RegisterDBStats(serviceName string, statFunc func() sql.DBStats, opts DBSta
 
 	key := fmt.Sprintf("%T:%p:%s", opts.Registerer, opts.Registerer, metricPrefix(serviceName))
 	onceValue, _ := dbStatsRegistrations.LoadOrStore(key, &sync.Once{})
-	once, ok := onceValue.(*sync.Once)
-	if !ok {
-		return fmt.Errorf("db_stats_registration_invalid: %T", onceValue)
-	}
+	once, _ := onceValue.(*sync.Once)
 
 	var registerErr error
 	once.Do(func() {
