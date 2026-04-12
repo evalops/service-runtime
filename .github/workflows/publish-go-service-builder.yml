@@ -31,7 +31,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           dockerfile: images/go-service-builder/Dockerfile
           metadata_tags: |
-            type=raw,value=go1.25
+            type=raw,value=go1.26
             type=raw,value=latest
             type=sha,prefix=sha-
           platforms: linux/amd64,linux/arm64

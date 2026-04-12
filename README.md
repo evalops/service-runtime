@@ -497,7 +497,7 @@ step in CI without repeating raw `docker build` commands:
     target: connector
     tags: gate-connector:test
     build_args: |
-      GO_BUILDER_IMAGE=golang:1.25-alpine
+      GO_BUILDER_IMAGE=golang:1.26-alpine
 ```
 
 Useful knobs:
@@ -516,13 +516,13 @@ The shared builder image is published from
 `images/go-service-builder/Dockerfile` to:
 
 ```text
-ghcr.io/evalops/service-runtime-go-builder:go1.25
+ghcr.io/evalops/service-runtime-go-builder:go1.26
 ```
 
 A typical consumer Dockerfile can then start with:
 
 ```dockerfile
-FROM ghcr.io/evalops/service-runtime-go-builder:go1.25 AS builder
+FROM ghcr.io/evalops/service-runtime-go-builder:go1.26 AS builder
 ```
 
 ## Design Rules
