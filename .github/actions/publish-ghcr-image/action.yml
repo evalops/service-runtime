@@ -118,11 +118,15 @@ runs:
     - name: Build image
       id: build-image
       uses: docker/build-push-action@v7
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile }}
         target: ${{ inputs.target }}
         build-args: ${{ steps.normalize-build-args.outputs.value }}
+        secret-envs: |
+          github_token=GITHUB_TOKEN
         platforms: ${{ inputs.platforms }}
         push: ${{ inputs.push == 'true' }}
         load: ${{ inputs.load == 'true' }}
