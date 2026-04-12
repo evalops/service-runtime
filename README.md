@@ -31,6 +31,19 @@ Current non-goals:
 - SQL schema ownership
 - service-specific logging policy
 
+## Releases
+
+Every merge to `main` now cuts the next patch release automatically.
+
+The release workflow finds the latest `vX.Y.Z` tag, increments the patch
+number, tags the merge commit, and publishes a GitHub release with generated
+notes. This keeps downstream services on normal semver module versions instead
+of timestamped pseudo-versions.
+
+The automation intentionally stays conservative and only advances the patch
+line. If maintainers need to start a new minor or major line, cut that seed tag
+manually first and the workflow will continue from there on later merges.
+
 ## Packages
 
 ### `startup`
