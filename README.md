@@ -416,6 +416,7 @@ That action:
 - exports `GOPRIVATE=github.com/evalops/*`
 - exports `GONOSUMDB=github.com/evalops/*`
 - exports `GOPROXY=direct`
+- configures authenticated `git` access for private `github.com/evalops/*` modules using the workflow token
 - optionally runs `go mod download`
 
 Useful knobs:
@@ -453,6 +454,16 @@ Useful knobs:
 - `platforms` for multi-arch publishes
 - `setup_qemu=true` when a workflow needs QEMU for multi-arch image builds
 - `metadata_tags` when a repo needs a non-default tagging contract
+
+For Dockerfiles that need to fetch private Go modules during `go mod download`,
+the shared image-build actions now expose the workflow token as a BuildKit
+secret named `github_token`. A Dockerfile can opt into that secret with:
+
+```dockerfile
+RUN --mount=type=secret,id=github_token \
+    git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" && \
+    go mod download
+```
 
 Outputs:
 
