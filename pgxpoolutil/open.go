@@ -35,8 +35,8 @@ func Open(ctx context.Context, dsn string, opts Options) (*pgxpool.Pool, error) 
 			return nil, fmt.Errorf("parse_pgxpool_config: %w", err)
 		}
 		if opts.Configure != nil {
-			if err := opts.Configure(cfg); err != nil {
-				return nil, fmt.Errorf("configure_pgxpool: %w", err)
+			if configureErr := opts.Configure(cfg); configureErr != nil {
+				return nil, fmt.Errorf("configure_pgxpool: %w", configureErr)
 			}
 		}
 

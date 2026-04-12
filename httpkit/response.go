@@ -100,6 +100,4 @@ type jsonEncoder interface {
 	Encode(v any) error
 }
 
-var jsonNewEncoder = func(writer io.Writer) jsonEncoder {
-	return newJSONEncoder(writer)
-}
+var jsonNewEncoder = newJSONEncoder

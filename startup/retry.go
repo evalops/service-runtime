@@ -31,11 +31,11 @@ func Do(ctx context.Context, cfg Config, operation func(context.Context) error) 
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
-		if err := operation(ctx); err == nil {
+		err := operation(ctx)
+		if err == nil {
 			return nil
-		} else {
-			lastErr = err
 		}
+		lastErr = err
 
 		if attempt == cfg.MaxAttempts {
 			break

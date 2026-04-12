@@ -116,9 +116,7 @@ type jetStreamClient interface {
 	PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error)
 }
 
-var connectNATS = func(url string, options ...nats.Option) (*nats.Conn, error) {
-	return nats.Connect(url, options...)
-}
+var connectNATS = nats.Connect
 
 var newJetStream = func(connection *nats.Conn) (jetStreamClient, error) {
 	return jetstream.New(connection)

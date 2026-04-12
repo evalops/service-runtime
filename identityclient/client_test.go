@@ -34,14 +34,18 @@ func TestNewMTLSClientUsesDefaultHTTPClientWhenTLSIsUnset(t *testing.T) {
 	}
 }
 
+//nolint:gosec // Test literals exercise configuration detection and do not carry real credentials.
 func TestConfigured(t *testing.T) {
+	bootstrapKey := strings.Repeat("b", 16)
+	blankBootstrapKey := strings.Repeat(" ", 3)
+
 	if NewClient("", time.Second, nil).Configured() {
 		t.Fatal("expected empty client to be unconfigured")
 	}
 	if !NewClient("https://identity.internal/v1/tokens/introspect", time.Second, nil).Configured() {
 		t.Fatal("expected configured client")
 	}
-	if !New(Config{ServiceTokensURL: "https://identity.internal/v1/service-tokens", BootstrapKey: "bootstrap"}).ServiceTokensConfigured() {
+	if !New(Config{ServiceTokensURL: "https://identity.internal/v1/service-tokens", BootstrapKey: bootstrapKey}).ServiceTokensConfigured() {
 		t.Fatal("expected service tokens to be configured")
 	}
 	if !New(Config{
@@ -56,7 +60,7 @@ func TestConfigured(t *testing.T) {
 	}
 	if New(Config{
 		ServiceTokensURL: "https://identity.internal/v1/service-tokens",
-		BootstrapKey:     "   ",
+		BootstrapKey:     blankBootstrapKey,
 	}).ServiceTokensConfigured() {
 		t.Fatal("expected whitespace-only bootstrap key to be treated as unset")
 	}
