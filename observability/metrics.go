@@ -11,12 +11,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// MetricsOptions configures Prometheus metric registration and histogram buckets.
 type MetricsOptions struct {
 	Registerer     prometheus.Registerer
 	Gatherer       prometheus.Gatherer
 	RequestBuckets []float64
 }
 
+// Metrics collects HTTP request counters and duration histograms for a service.
 type Metrics struct {
 	serviceName     string
 	gatherer        prometheus.Gatherer
@@ -24,6 +26,7 @@ type Metrics struct {
 	requestDuration *prometheus.HistogramVec
 }
 
+// NewMetrics creates and registers Prometheus HTTP metrics for the named service.
 func NewMetrics(serviceName string, opts MetricsOptions) (*Metrics, error) {
 	opts = opts.withDefaults()
 	prefix := metricPrefix(serviceName)
@@ -65,6 +68,7 @@ func NewMetrics(serviceName string, opts MetricsOptions) (*Metrics, error) {
 	}, nil
 }
 
+// RecordRequest increments the request counter and observes the duration for the given route.
 func (metrics *Metrics) RecordRequest(method, route string, status int, duration time.Duration) {
 	if metrics == nil {
 		return
@@ -78,6 +82,7 @@ func (metrics *Metrics) RecordRequest(method, route string, status int, duration
 	metrics.requestDuration.WithLabelValues(method, route, statusLabel).Observe(duration.Seconds())
 }
 
+// Handler returns an http.Handler that serves Prometheus metrics.
 func (metrics *Metrics) Handler() http.Handler {
 	gatherer := prometheus.Gatherer(prometheus.DefaultGatherer)
 	if metrics != nil && metrics.gatherer != nil {

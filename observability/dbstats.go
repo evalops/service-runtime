@@ -1,3 +1,4 @@
+// Package observability provides HTTP request logging, Prometheus metrics, and wide event tracking.
 package observability
 
 import (
@@ -8,12 +9,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// DBStatsOptions configures database stats registration with a custom Prometheus registerer.
 type DBStatsOptions struct {
 	Registerer prometheus.Registerer
 }
 
 var dbStatsRegistrations sync.Map
 
+// RegisterDBStats registers Prometheus gauges that expose sql.DBStats for the given service.
 func RegisterDBStats(serviceName string, statFunc func() sql.DBStats, opts DBStatsOptions) error {
 	if statFunc == nil {
 		return nil

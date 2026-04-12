@@ -1,3 +1,4 @@
+// Package identityclient provides a client for the identity service's introspection and service token APIs.
 package identityclient
 
 import (
@@ -22,6 +23,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// ErrIdentityNotConfigured, ErrIdentityUnavailable, ErrInvalidToken, ErrInactiveToken, and
+// ErrServiceTokensNotConfigured are sentinel errors returned by the identity client.
 var (
 	ErrIdentityNotConfigured      = errors.New("identity_not_configured")
 	ErrIdentityUnavailable        = errors.New("identity_unavailable")
@@ -30,6 +33,7 @@ var (
 	ErrServiceTokensNotConfigured = errors.New("identity_service_tokens_not_configured")
 )
 
+// Config holds the settings for connecting to the identity service.
 type Config struct {
 	IntrospectURL    string
 	ServiceTokensURL string
@@ -39,6 +43,7 @@ type Config struct {
 	HTTPClient       *http.Client
 }
 
+// IntrospectionResult is the parsed response from a token introspection call.
 type IntrospectionResult struct {
 	Active         bool     `json:"active"`
 	AgentType      string   `json:"agent_type,omitempty"`
@@ -69,10 +74,12 @@ type cachedServiceToken struct {
 	token     string
 }
 
+// ServiceTokenClaims holds the claims embedded in a service token response.
 type ServiceTokenClaims struct {
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
+// GetExpiresAt returns the expiration time as a protobuf Timestamp, or nil if unset.
 func (c *ServiceTokenClaims) GetExpiresAt() *timestamppb.Timestamp {
 	if c == nil || c.ExpiresAt.IsZero() {
 		return nil
@@ -80,6 +87,7 @@ func (c *ServiceTokenClaims) GetExpiresAt() *timestamppb.Timestamp {
 	return timestamppb.New(c.ExpiresAt)
 }
 
+// ServiceTokenResponse is the response from issuing a service token.
 type ServiceTokenResponse struct {
 	Token     string              `json:"token,omitempty"`
 	TokenType string              `json:"token_type,omitempty"`
@@ -87,6 +95,7 @@ type ServiceTokenResponse struct {
 	Claims    *ServiceTokenClaims `json:"claims,omitempty"`
 }
 
+// GetToken returns the token string, or empty if the response is nil.
 func (r *ServiceTokenResponse) GetToken() string {
 	if r == nil {
 		return ""
@@ -94,6 +103,7 @@ func (r *ServiceTokenResponse) GetToken() string {
 	return r.Token
 }
 
+// GetExpiresAt returns the expiration time as a protobuf Timestamp, or nil if unset.
 func (r *ServiceTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 	if r == nil || r.ExpiresAt.IsZero() {
 		return nil
@@ -101,6 +111,7 @@ func (r *ServiceTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 	return timestamppb.New(r.ExpiresAt)
 }
 
+// GetClaims returns the embedded claims, or nil if the response is nil.
 func (r *ServiceTokenResponse) GetClaims() *ServiceTokenClaims {
 	if r == nil {
 		return nil
@@ -121,6 +132,7 @@ func (r *ServiceTokenResponse) expiryTime() (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// Client communicates with the identity service for token introspection and service token issuance.
 type Client struct {
 	httpClient       *http.Client
 	introspectURL    string
@@ -136,6 +148,7 @@ type Client struct {
 	serviceTokens    map[serviceTokenCacheKey]cachedServiceToken
 }
 
+// New creates a Client from the given configuration.
 func New(config Config) *Client {
 	httpClient := config.HTTPClient
 	if httpClient == nil {
@@ -153,6 +166,7 @@ func New(config Config) *Client {
 	}
 }
 
+// NewClient creates a Client configured for token introspection only.
 func NewClient(introspectURL string, requestTimeout time.Duration, httpClient *http.Client) *Client {
 	return New(Config{
 		IntrospectURL:  introspectURL,
@@ -161,6 +175,7 @@ func NewClient(introspectURL string, requestTimeout time.Duration, httpClient *h
 	})
 }
 
+// NewMTLSClient creates a Client that authenticates to the identity service using mutual TLS.
 func NewMTLSClient(introspectURL string, requestTimeout time.Duration, tlsConfig mtls.ClientConfig) (*Client, error) {
 	httpClient, err := mtls.BuildHTTPClient(tlsConfig)
 	if err != nil {
@@ -173,14 +188,17 @@ func NewMTLSClient(introspectURL string, requestTimeout time.Duration, tlsConfig
 	}), nil
 }
 
+// Configured reports whether the client has an introspection URL set.
 func (c *Client) Configured() bool {
 	return c != nil && c.introspectURL != ""
 }
 
+// ServiceTokensConfigured reports whether the client can issue service tokens.
 func (c *Client) ServiceTokensConfigured() bool {
 	return c != nil && c.serviceTokensURL != "" && (strings.TrimSpace(c.bootstrapKey) != "" || c.usesMTLSClientCertificate())
 }
 
+// Introspect validates a bearer token and returns a parsed introspection result.
 func (c *Client) Introspect(ctx context.Context, bearerToken string) (IntrospectionResult, error) {
 	result, err := c.IntrospectProto(ctx, bearerToken)
 	if err != nil {
@@ -189,6 +207,7 @@ func (c *Client) Introspect(ctx context.Context, bearerToken string) (Introspect
 	return introspectionResultFromProto(result), nil
 }
 
+// IntrospectProto validates a bearer token and returns the raw protobuf introspection response.
 func (c *Client) IntrospectProto(ctx context.Context, bearerToken string) (*identityv1.IntrospectResponse, error) {
 	if !c.Configured() {
 		return nil, ErrIdentityNotConfigured
@@ -263,6 +282,7 @@ func (c *Client) IntrospectProto(ctx context.Context, bearerToken string) (*iden
 	return cloneIntrospectionResult(&result), nil
 }
 
+// IssueServiceToken requests a new service token from the identity service.
 func (c *Client) IssueServiceToken(
 	ctx context.Context,
 	organizationID string,
@@ -329,6 +349,7 @@ func (c *Client) IssueServiceToken(
 	return &result, nil
 }
 
+// ResolveServiceToken returns a cached service token or issues a new one if the cached token is expiring.
 func (c *Client) ResolveServiceToken(
 	ctx context.Context,
 	organizationID string,

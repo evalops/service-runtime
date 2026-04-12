@@ -1,3 +1,4 @@
+// Package redisutil provides helpers for opening Redis connections with retry.
 package redisutil
 
 import (
@@ -9,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Options configures Redis connection behavior including ping timeout and retry settings.
 type Options struct {
 	PingTimeout time.Duration
 	Retry       startup.Config
@@ -18,6 +20,7 @@ var pingClient = func(ctx context.Context, client *redis.Client) error {
 	return client.Ping(ctx).Err()
 }
 
+// Open creates a Redis client from the given URL, retrying the ping until it succeeds.
 func Open(ctx context.Context, redisURL string, opts Options) (*redis.Client, error) {
 	options, err := redis.ParseURL(redisURL)
 	if err != nil {

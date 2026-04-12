@@ -1,3 +1,4 @@
+// Package postgres provides helpers for opening and initializing database/sql connections with retry.
 package postgres
 
 import (
@@ -9,8 +10,10 @@ import (
 	"github.com/evalops/service-runtime/startup"
 )
 
+// InitFunc is a callback invoked after a successful ping to initialize the database.
 type InitFunc func(context.Context, *sql.DB) error
 
+// Options configures the Postgres connection driver, ping timeout, and retry behavior.
 type Options struct {
 	DriverName  string
 	PingTimeout time.Duration
@@ -19,10 +22,12 @@ type Options struct {
 
 var sqlOpen = sql.Open
 
+// Open opens a Postgres connection and verifies it with a ping, retrying on failure.
 func Open(ctx context.Context, databaseURL string, opts Options) (*sql.DB, error) {
 	return OpenAndInit(ctx, databaseURL, nil, opts)
 }
 
+// OpenAndInit opens a Postgres connection, pings it, and runs the init function, retrying on failure.
 func OpenAndInit(ctx context.Context, databaseURL string, init InitFunc, opts Options) (*sql.DB, error) {
 	opts = withDefaults(opts)
 

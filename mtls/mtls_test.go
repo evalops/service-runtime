@@ -71,7 +71,7 @@ func TestVerifiedClientCertificateIdentitiesDedupes(t *testing.T) {
 }
 
 func TestRequireVerifiedClientCertificateRejectsMissingCertificate(t *testing.T) {
-	handler := RequireVerifiedClientCertificate(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	handler := RequireVerifiedClientCertificate(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -90,7 +90,7 @@ func TestRequireVerifiedClientCertificateRejectsMissingCertificate(t *testing.T)
 func TestRequireVerifiedClientCertificateForIdentitiesHonorsAllowedList(t *testing.T) {
 	handler := RequireVerifiedClientCertificateForIdentities(
 		[]string{"svc.internal"},
-		http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 			writer.WriteHeader(http.StatusNoContent)
 		}),
 	)

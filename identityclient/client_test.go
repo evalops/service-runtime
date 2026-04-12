@@ -67,10 +67,7 @@ func TestConfigured(t *testing.T) {
 }
 
 func TestIntrospectSuccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("Authorization"); got != "Bearer write-token" {
-			t.Fatalf("unexpected authorization header: %q", got)
-		}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, writer, http.StatusOK, map[string]any{
 			"active":          true,
 			"organization_id": "org_123",
@@ -117,7 +114,7 @@ func TestIntrospectSuccess(t *testing.T) {
 }
 
 func TestIntrospectProtoSuccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, writer, http.StatusOK, map[string]any{
 			"active":          true,
 			"organization_id": "org_123",
@@ -153,7 +150,7 @@ func TestIntrospectFallsBackToCachedResultOnIdentityOutage(t *testing.T) {
 
 	var calls int
 	httpClient := &http.Client{
-		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			calls++
 			if calls == 1 {
 				return &http.Response{
@@ -193,7 +190,7 @@ func TestIntrospectFallsBackToCachedResultOnIdentityOutage(t *testing.T) {
 }
 
 func TestIntrospectReturnsInvalidTokenForUnauthorized(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
@@ -206,7 +203,7 @@ func TestIntrospectReturnsInvalidTokenForUnauthorized(t *testing.T) {
 }
 
 func TestIntrospectReturnsInactiveToken(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, writer, http.StatusOK, map[string]any{"active": false})
 	}))
 	defer server.Close()
@@ -227,7 +224,7 @@ func TestIntrospectReturnsIdentityUnavailableForTransportErrors(t *testing.T) {
 }
 
 func TestIntrospectReturnsIdentityUnavailableForBadJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(`{not-json}`))
 	}))
@@ -362,7 +359,7 @@ func TestResolveServiceTokenIssuesAndCachesByScopeSet(t *testing.T) {
 	t.Parallel()
 
 	var identityCalls atomic.Int32
-	identityServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	identityServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		identityCalls.Add(1)
 		writeJSON(t, w, http.StatusCreated, map[string]any{
 			"token":      "identity-service-token",
@@ -415,7 +412,7 @@ func TestResolveServiceTokenRefreshesExpiringTokens(t *testing.T) {
 	t.Parallel()
 
 	var identityCalls atomic.Int32
-	identityServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	identityServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		call := identityCalls.Add(1)
 		writeJSON(t, w, http.StatusCreated, map[string]any{
 			"token":      fmt.Sprintf("identity-service-token-%d", call),

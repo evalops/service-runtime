@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// RequestLoggingMiddleware returns HTTP middleware that logs requests and records metrics.
 func RequestLoggingMiddleware(logger *slog.Logger, metrics *Metrics) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()

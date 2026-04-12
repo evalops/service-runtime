@@ -1,3 +1,4 @@
+// Package pgxpoolutil provides helpers for opening and pinging pgxpool connections with retry.
 package pgxpoolutil
 
 import (
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Options configures pgxpool connection behavior including ping timeout and retry settings.
 type Options struct {
 	PingTimeout time.Duration
 	Retry       startup.Config
@@ -26,6 +28,7 @@ var (
 	}
 )
 
+// Open creates a pgxpool.Pool, retrying the connection until it succeeds or attempts are exhausted.
 func Open(ctx context.Context, dsn string, opts Options) (*pgxpool.Pool, error) {
 	opts = withDefaults(opts)
 

@@ -122,7 +122,7 @@ func TestWithRequestLogging(t *testing.T) {
 
 	var output bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
-	handler := WithRequestLogging(logger)(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	handler := WithRequestLogging(logger)(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusAccepted)
 		_, _ = writer.Write([]byte(`{"ok":true}`))
 	}))

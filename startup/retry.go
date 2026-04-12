@@ -1,3 +1,4 @@
+// Package startup provides retry helpers for establishing connections during service startup.
 package startup
 
 import (
@@ -6,11 +7,13 @@ import (
 	"time"
 )
 
+// DefaultMaxAttempts and DefaultDelay are the default retry settings for startup operations.
 const (
 	DefaultMaxAttempts = 30
 	DefaultDelay       = 2 * time.Second
 )
 
+// Config controls retry behavior for startup operations.
 type Config struct {
 	MaxAttempts int
 	Delay       time.Duration
@@ -26,6 +29,7 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
+// Do retries the operation until it succeeds or the maximum attempts are reached.
 func Do(ctx context.Context, cfg Config, operation func(context.Context) error) error {
 	cfg = cfg.withDefaults()
 
@@ -53,6 +57,7 @@ func Do(ctx context.Context, cfg Config, operation func(context.Context) error) 
 	return fmt.Errorf("startup failed after %d attempts: %w", cfg.MaxAttempts, lastErr)
 }
 
+// Value retries the operation and returns its result on success.
 func Value[T any](ctx context.Context, cfg Config, operation func(context.Context) (T, error)) (T, error) {
 	var zero T
 	var value T

@@ -1,3 +1,4 @@
+// Package authmw provides HTTP middleware for bearer token and API key authentication.
 package authmw
 
 import (
@@ -12,6 +13,7 @@ type contextKey string
 
 const actorContextKey contextKey = "actor"
 
+// Actor represents the authenticated identity extracted from a request.
 type Actor struct {
 	Type           string            `json:"type"`
 	ID             string            `json:"id"`
@@ -19,37 +21,44 @@ type Actor struct {
 	Attributes     map[string]string `json:"attributes,omitempty"`
 }
 
+// VerifiedToken holds the actor and scopes returned by a successful token verification.
 type VerifiedToken struct {
 	Actor  Actor
 	Scopes []string
 }
 
+// ValidatedAPIKey holds the identity and scopes returned by a successful API key validation.
 type ValidatedAPIKey struct {
 	ID             string
 	OrganizationID string
 	Scopes         []string
 }
 
+// TokenVerifier verifies bearer tokens and returns the associated actor and scopes.
 type TokenVerifier interface {
 	VerifyToken(ctx context.Context, token string, requiredScopes []string) (VerifiedToken, error)
 }
 
+// APIKeyValidator validates API keys and returns the associated identity and scopes.
 type APIKeyValidator interface {
 	ValidateAPIKey(ctx context.Context, token string) (ValidatedAPIKey, error)
 }
 
+// Config holds the dependencies for creating auth middleware.
 type Config struct {
 	TokenVerifier    TokenVerifier
 	APIKeyValidator  APIKeyValidator
 	IsForbiddenError func(error) bool
 }
 
+// Middleware enforces authentication on HTTP handlers using bearer tokens or API keys.
 type Middleware struct {
 	tokenVerifier    TokenVerifier
 	apiKeyValidator  APIKeyValidator
 	isForbiddenError func(error) bool
 }
 
+// New creates a Middleware from the given configuration.
 func New(config Config) *Middleware {
 	return &Middleware{
 		tokenVerifier:    config.TokenVerifier,
@@ -58,6 +67,7 @@ func New(config Config) *Middleware {
 	}
 }
 
+// WithAuth returns HTTP middleware that requires authentication with the specified scopes.
 func (middleware *Middleware) WithAuth(scopes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -83,11 +93,13 @@ func (middleware *Middleware) WithAuth(scopes ...string) func(http.Handler) http
 	}
 }
 
+// ActorFromContext extracts the authenticated Actor from the request context.
 func ActorFromContext(ctx context.Context) (Actor, bool) {
 	actor, ok := ctx.Value(actorContextKey).(Actor)
 	return actor, ok
 }
 
+// HasAllScopes returns true if all required scopes are present in the available set.
 func HasAllScopes(available []string, required []string) bool {
 	for _, requirement := range required {
 		found := false
@@ -104,6 +116,7 @@ func HasAllScopes(available []string, required []string) bool {
 	return true
 }
 
+// BearerToken extracts the token from an Authorization header value of the form "Bearer <token>".
 func BearerToken(header string) (string, bool) {
 	parts := strings.SplitN(header, " ", 2)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {

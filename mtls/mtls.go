@@ -1,3 +1,4 @@
+// Package mtls provides helpers for building mutual TLS configurations and middleware.
 package mtls
 
 import (
@@ -9,6 +10,7 @@ import (
 	"os"
 )
 
+// ClientConfig holds file paths and server name for building a client-side TLS configuration.
 type ClientConfig struct {
 	CAFile     string
 	CertFile   string
@@ -16,12 +18,14 @@ type ClientConfig struct {
 	ServerName string
 }
 
+// ServerConfig holds file paths for building a server-side TLS configuration with optional client auth.
 type ServerConfig struct {
 	CertFile     string
 	KeyFile      string
 	ClientCAFile string
 }
 
+// BuildServerTLSConfig creates a tls.Config for a server, optionally requiring client certificates.
 func BuildServerTLSConfig(cfg ServerConfig) (*tls.Config, error) {
 	if cfg.CertFile == "" && cfg.KeyFile == "" && cfg.ClientCAFile == "" {
 		return nil, nil
@@ -56,6 +60,7 @@ func BuildServerTLSConfig(cfg ServerConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// BuildHTTPClient creates an http.Client configured with mutual TLS from the given config.
 func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 	tlsConfig, err := BuildClientTLSConfig(cfg)
 	if err != nil {
@@ -74,6 +79,7 @@ func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 	return &http.Client{Transport: transport}, nil
 }
 
+// BuildClientTLSConfig creates a tls.Config for a client, loading CA and client certificates as configured.
 func BuildClientTLSConfig(cfg ClientConfig) (*tls.Config, error) {
 	if cfg.CAFile == "" && cfg.CertFile == "" && cfg.KeyFile == "" && cfg.ServerName == "" {
 		return nil, nil
@@ -113,12 +119,14 @@ func BuildClientTLSConfig(cfg ClientConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// HasVerifiedClientCertificate reports whether the request has a verified client certificate.
 func HasVerifiedClientCertificate(request *http.Request) bool {
 	return request != nil &&
 		request.TLS != nil &&
 		len(request.TLS.VerifiedChains) > 0
 }
 
+// VerifiedClientCertificateIdentities returns the identities (CN, DNS, URI, email) from verified client certificates.
 func VerifiedClientCertificateIdentities(request *http.Request) []string {
 	if !HasVerifiedClientCertificate(request) {
 		return nil
@@ -159,6 +167,7 @@ func VerifiedClientCertificateIdentities(request *http.Request) []string {
 	return identities
 }
 
+// HasAllowedVerifiedClientCertificate reports whether the request has a verified client certificate matching an allowed identity.
 func HasAllowedVerifiedClientCertificate(request *http.Request, allowedIdentities []string) bool {
 	if !HasVerifiedClientCertificate(request) {
 		return false
@@ -178,10 +187,12 @@ func HasAllowedVerifiedClientCertificate(request *http.Request, allowedIdentitie
 	return false
 }
 
+// RequireVerifiedClientCertificate returns middleware that rejects requests without a verified client certificate.
 func RequireVerifiedClientCertificate(next http.Handler) http.Handler {
 	return RequireVerifiedClientCertificateForIdentities(nil, next)
 }
 
+// RequireVerifiedClientCertificateForIdentities returns middleware that rejects requests without a verified client certificate matching an allowed identity.
 func RequireVerifiedClientCertificateForIdentities(allowedIdentities []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !HasVerifiedClientCertificate(request) {

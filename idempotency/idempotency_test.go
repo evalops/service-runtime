@@ -297,13 +297,13 @@ func (store *fakeStore) Cleanup(context.Context, time.Time) error {
 	return nil
 }
 
-func (store *fakeStore) Begin(_ context.Context, scope, key, requestHash string, _ time.Duration, _ time.Time) (*ReplayResult, error) {
+func (store *fakeStore) Begin(_ context.Context, scope, _, requestHash string, _ time.Duration, _ time.Time) (*ReplayResult, error) {
 	store.scope = scope
 	store.beginHash = requestHash
 	return store.replay, store.beginErr
 }
 
-func (store *fakeStore) Complete(_ context.Context, scope, key string, result ReplayResult, _ time.Time) error {
+func (store *fakeStore) Complete(_ context.Context, scope, _ string, result ReplayResult, _ time.Time) error {
 	store.scope = scope
 	store.completeResult = result
 	return nil

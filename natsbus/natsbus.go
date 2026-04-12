@@ -1,3 +1,4 @@
+// Package natsbus provides NATS JetStream-based event publishing using CloudEvents.
 package natsbus
 
 import (
@@ -20,12 +21,15 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// DefaultMaxAge is the default maximum age for messages in a NATS JetStream stream.
 const (
 	DefaultMaxAge = 7 * 24 * time.Hour
 )
 
+// WireFormat represents the serialization format used for event envelopes.
 type WireFormat string
 
+// WireFormatJSON, WireFormatProto, and WireFormatProtoHeaders define the supported wire formats.
 const (
 	WireFormatJSON         WireFormat = "json"
 	WireFormatProto        WireFormat = "proto"
@@ -53,6 +57,7 @@ const (
 	headerTenantID        = "ce-tenantid"
 )
 
+// Change represents a domain change event to be published.
 type Change struct {
 	Sequence         int64      `json:"sequence"`
 	TenantID         string     `json:"tenant_id"`
@@ -64,6 +69,7 @@ type Change struct {
 	Payload          *anypb.Any `json:"payload,omitempty"`
 }
 
+// CloudEvent is the JSON representation of a CloudEvents v1.0 event.
 type CloudEvent struct {
 	SpecVersion     string          `json:"specversion"`
 	ID              string          `json:"id"`
@@ -75,6 +81,7 @@ type CloudEvent struct {
 	Data            json.RawMessage `json:"data"`
 }
 
+// Envelope holds the parsed fields of a CloudEvent regardless of wire format.
 type Envelope struct {
 	SpecVersion     string
 	ID              string
@@ -87,6 +94,7 @@ type Envelope struct {
 	WireFormat      WireFormat
 }
 
+// Options configures a Publisher connection and stream.
 type Options struct {
 	Logger      *slog.Logger
 	Retention   jetstream.RetentionPolicy
@@ -96,10 +104,12 @@ type Options struct {
 	WireFormat  WireFormat
 }
 
+// ChangePublisher is the interface for publishing domain change events.
 type ChangePublisher interface {
 	PublishChange(ctx context.Context, change Change)
 }
 
+// Publisher publishes change events to a NATS JetStream stream.
 type Publisher struct {
 	js            jetStreamClient
 	logger        *slog.Logger
@@ -109,6 +119,7 @@ type Publisher struct {
 	closeFunc     func()
 }
 
+// NoopPublisher is a no-op implementation of ChangePublisher that discards all events.
 type NoopPublisher struct{}
 
 type jetStreamClient interface {
@@ -122,10 +133,12 @@ var newJetStream = func(connection *nats.Conn) (jetStreamClient, error) {
 	return jetstream.New(connection)
 }
 
+// Connect creates a Publisher with default options using the provided logger.
 func Connect(ctx context.Context, natsURL, streamName, subjectPrefix string, logger *slog.Logger) (*Publisher, error) {
 	return ConnectWithOptions(ctx, natsURL, streamName, subjectPrefix, Options{Logger: logger})
 }
 
+// ConnectWithOptions creates a Publisher with the given options, connecting to NATS and ensuring the stream exists.
 func ConnectWithOptions(ctx context.Context, natsURL, streamName, subjectPrefix string, opts Options) (*Publisher, error) {
 	opts = opts.withDefaults()
 	natsURL = strings.TrimSpace(natsURL)
@@ -173,12 +186,14 @@ func ConnectWithOptions(ctx context.Context, natsURL, streamName, subjectPrefix 
 	}, nil
 }
 
+// Close drains and closes the underlying NATS connection.
 func (publisher *Publisher) Close() {
 	if publisher != nil && publisher.closeFunc != nil {
 		publisher.closeFunc()
 	}
 }
 
+// PublishChange serializes and publishes a change event to the appropriate NATS subject.
 func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
 	if publisher == nil || publisher.js == nil {
 		return
@@ -205,6 +220,7 @@ func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
 	publisher.loggerOrDefault().Debug("published change event", "seq", change.Sequence, "subject", subject)
 }
 
+// PublishChange is a no-op that satisfies the ChangePublisher interface.
 func (NoopPublisher) PublishChange(context.Context, Change) {}
 
 func (opts Options) withDefaults() Options {
@@ -236,6 +252,7 @@ func (opts Options) natsOptions() []nats.Option {
 	return options
 }
 
+// NewPayload wraps a proto.Message in an anypb.Any for use as an event payload.
 func NewPayload(message proto.Message) (*anypb.Any, error) {
 	if message == nil {
 		return nil, errPayloadMessageNil
@@ -243,6 +260,7 @@ func NewPayload(message proto.Message) (*anypb.Any, error) {
 	return anypb.New(message)
 }
 
+// MustPayload wraps a proto.Message in an anypb.Any, panicking on error.
 func MustPayload(message proto.Message) *anypb.Any {
 	payload, err := NewPayload(message)
 	if err != nil {
@@ -251,6 +269,7 @@ func MustPayload(message proto.Message) *anypb.Any {
 	return payload
 }
 
+// UnmarshalPayload extracts a proto.Message from an anypb.Any payload.
 func UnmarshalPayload(payload *anypb.Any, target proto.Message) error {
 	if target == nil {
 		return errPayloadTargetNil
@@ -401,6 +420,7 @@ func marshalEnvelopeProto(envelope Envelope) ([]byte, error) {
 	return proto.Marshal(message)
 }
 
+// UnmarshalEnvelope deserializes a byte slice into an Envelope, auto-detecting the wire format.
 func UnmarshalEnvelope(data []byte) (Envelope, error) {
 	if len(data) == 0 {
 		return Envelope{}, errEnvelopeEmpty
@@ -431,6 +451,7 @@ func UnmarshalEnvelope(data []byte) (Envelope, error) {
 	}
 }
 
+// UnmarshalMessage deserializes a NATS message into an Envelope, using headers when present.
 func UnmarshalMessage(message *nats.Msg) (Envelope, error) {
 	if message == nil {
 		return Envelope{}, errMessageNil

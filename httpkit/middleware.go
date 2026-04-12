@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// WithRequestID is middleware that ensures each request has an X-Request-Id header.
 func WithRequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requestID := request.Header.Get("X-Request-Id")
@@ -22,6 +23,7 @@ func WithRequestID(next http.Handler) http.Handler {
 	})
 }
 
+// WithMaxBodySize returns middleware that limits the request body to the given number of bytes.
 func WithMaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -33,6 +35,7 @@ func WithMaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 	}
 }
 
+// WithRequestLogging returns middleware that logs each completed HTTP request.
 func WithRequestLogging(logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -58,6 +61,7 @@ func WithRequestLogging(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// RoutePattern returns the matched chi route pattern for the request, falling back to the raw path.
 func RoutePattern(request *http.Request) string {
 	route := request.URL.Path
 	if routeContext := chi.RouteContext(request.Context()); routeContext != nil {

@@ -16,6 +16,7 @@ type contextKey string
 
 const requestIDContextKey contextKey = "request_id"
 
+// DecodeJSON decodes the request body into value, writing an error response and returning false on failure.
 func DecodeJSON(writer http.ResponseWriter, request *http.Request, value any) bool {
 	decoder := json.NewDecoder(request.Body)
 	if err := decoder.Decode(value); err != nil {
@@ -32,6 +33,7 @@ func DecodeJSON(writer http.ResponseWriter, request *http.Request, value any) bo
 	return true
 }
 
+// PathUUID parses a UUID from a URL path segment, writing an error response and returning false on failure.
 func PathUUID(writer http.ResponseWriter, raw, name string) (uuid.UUID, bool) {
 	identifier, err := uuid.Parse(raw)
 	if err != nil {
@@ -44,6 +46,7 @@ func PathUUID(writer http.ResponseWriter, raw, name string) (uuid.UUID, bool) {
 	return identifier, true
 }
 
+// RequireIfMatchVersion extracts and parses the If-Match header as an int64 version, writing an error on failure.
 func RequireIfMatchVersion(writer http.ResponseWriter, request *http.Request) (int64, bool) {
 	header := strings.TrimSpace(request.Header.Get("If-Match"))
 	if header == "" {
@@ -60,6 +63,7 @@ func RequireIfMatchVersion(writer http.ResponseWriter, request *http.Request) (i
 	return version, true
 }
 
+// ParseInt64Query parses a query parameter as int64, returning the fallback on missing or invalid values.
 func ParseInt64Query(request *http.Request, key string, fallback int64) int64 {
 	raw := strings.TrimSpace(request.URL.Query().Get(key))
 	if raw == "" {
@@ -74,11 +78,13 @@ func ParseInt64Query(request *http.Request, key string, fallback int64) int64 {
 	return value
 }
 
+// RequestIDFromContext extracts the request ID from the context, if present.
 func RequestIDFromContext(ctx context.Context) (string, bool) {
 	requestID, ok := ctx.Value(requestIDContextKey).(string)
 	return requestID, ok && strings.TrimSpace(requestID) != ""
 }
 
+// RequestMetadata returns a map of request metadata including method, path, and request ID.
 func RequestMetadata(request *http.Request) map[string]any {
 	metadata := map[string]any{
 		"method": request.Method,

@@ -1,3 +1,4 @@
+// Package changejournal provides helpers for writing audit entries and change journal records to SQL.
 package changejournal
 
 import (
@@ -18,23 +19,28 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// PlaceholderStyle selects the SQL placeholder syntax used in generated templates.
 type PlaceholderStyle int
 
+// PlaceholderDollar and PlaceholderQuestion define the supported SQL placeholder styles.
 const (
 	PlaceholderDollar PlaceholderStyle = iota + 1
 	PlaceholderQuestion
 )
 
+// Versioned is implemented by payloads that carry an aggregate version number.
 type Versioned interface {
 	GetVersion() int64
 }
 
+// Actor identifies who performed a mutation.
 type Actor struct {
 	Type           string `json:"type"`
 	ID             string `json:"id,omitempty"`
 	OrganizationID string `json:"organization_id"`
 }
 
+// Change is a single change journal record.
 type Change struct {
 	Sequence         int64           `json:"seq"`
 	OrganizationID   string          `json:"organization_id"`
@@ -48,6 +54,7 @@ type Change struct {
 	Payload          json.RawMessage `json:"payload"`
 }
 
+// AuditEntry is a single audit log record.
 type AuditEntry struct {
 	ID             string          `json:"id"`
 	OrganizationID string          `json:"organization_id"`
@@ -60,11 +67,13 @@ type AuditEntry struct {
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
+// SQLTemplates holds the parameterized SQL statements for inserting audit and change records.
 type SQLTemplates struct {
 	InsertAuditEntry    string
 	InsertChangeJournal string
 }
 
+// WriteOptions configures placeholder style, audit action, and time/ID generators.
 type WriteOptions struct {
 	PlaceholderStyle PlaceholderStyle
 	AuditAction      string
@@ -72,6 +81,7 @@ type WriteOptions struct {
 	NewID            func() string
 }
 
+// DBTX is the interface for a database connection or transaction capable of executing queries.
 type DBTX interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
@@ -135,10 +145,12 @@ func ChangeFromProto(change *eventsv1.Change) (Change, error) {
 	}, nil
 }
 
+// WriteMutation writes an audit entry and change journal record for a domain mutation using default options.
 func WriteMutation(ctx context.Context, tx DBTX, actor Actor, resourceType, resourceID, operation string, payload any, metadata map[string]any) (int64, error) {
 	return WriteMutationWithOptions(ctx, tx, actor, resourceType, resourceID, operation, payload, metadata, WriteOptions{})
 }
 
+// WriteMutationWithOptions writes an audit entry and change journal record with the given options.
 func WriteMutationWithOptions(ctx context.Context, tx DBTX, actor Actor, resourceType, resourceID, operation string, payload any, metadata map[string]any, opts WriteOptions) (int64, error) {
 	opts = opts.withDefaults(resourceType, operation)
 	now := opts.Now().UTC()
@@ -212,6 +224,7 @@ func WriteMutationWithOptions(ctx context.Context, tx DBTX, actor Actor, resourc
 	return change.Sequence, nil
 }
 
+// Templates returns SQL templates using the given placeholder style.
 func Templates(style PlaceholderStyle) SQLTemplates {
 	style = normalizedPlaceholderStyle(style)
 

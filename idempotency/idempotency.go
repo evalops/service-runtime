@@ -1,3 +1,4 @@
+// Package idempotency provides HTTP middleware and a Postgres store for idempotent request handling.
 package idempotency
 
 import (
@@ -17,28 +18,34 @@ import (
 	"github.com/evalops/service-runtime/httpkit"
 )
 
+// DefaultTTL is the default time-to-live for idempotency keys.
 const DefaultTTL = 24 * time.Hour
 
+// ErrConflict, ErrPending, and ErrScopeUnavailable are sentinel errors for idempotency operations.
 var (
 	ErrConflict         = errors.New("idempotency_conflict")
 	ErrPending          = errors.New("idempotency_pending")
 	ErrScopeUnavailable = errors.New("idempotency_scope_unavailable")
 )
 
+// ReplayResult holds a previously completed response to replay for a duplicate request.
 type ReplayResult struct {
 	StatusCode  int
 	ContentType string
 	Body        []byte
 }
 
+// Store persists and retrieves idempotency keys and their responses.
 type Store interface {
 	Cleanup(ctx context.Context, now time.Time) error
 	Begin(ctx context.Context, scope, key, requestHash string, ttl time.Duration, now time.Time) (*ReplayResult, error)
 	Complete(ctx context.Context, scope, key string, result ReplayResult, completedAt time.Time) error
 }
 
+// ScopeFunc derives an idempotency scope string from the incoming request.
 type ScopeFunc func(request *http.Request) (string, error)
 
+// Options configures the idempotency middleware behavior.
 type Options struct {
 	TTL       time.Duration
 	ScopeFunc ScopeFunc
@@ -46,10 +53,12 @@ type Options struct {
 	Now       func() time.Time
 }
 
+// Middleware returns HTTP middleware that enforces idempotency using the given store and TTL.
 func Middleware(store Store, ttl time.Duration) func(http.Handler) http.Handler {
 	return MiddlewareWithOptions(store, Options{TTL: ttl})
 }
 
+// MiddlewareWithOptions returns HTTP middleware that enforces idempotency with the given options.
 func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Handler {
 	opts = opts.withDefaults()
 
@@ -125,6 +134,7 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 	}
 }
 
+// DefaultScope derives the idempotency scope from the authenticated actor's organization, method, and path.
 func DefaultScope(request *http.Request) (string, error) {
 	actor, ok := authmw.ActorFromContext(request.Context())
 	if !ok || strings.TrimSpace(actor.OrganizationID) == "" {
@@ -133,6 +143,7 @@ func DefaultScope(request *http.Request) (string, error) {
 	return actor.OrganizationID + ":" + request.Method + ":" + request.URL.Path, nil
 }
 
+// RequestHash computes a SHA-256 hash of the request method, path, and body for deduplication.
 func RequestHash(method, path string, body []byte) string {
 	hash := sha256.New()
 	hash.Write([]byte(method + ":" + path + ":"))
@@ -156,19 +167,23 @@ func (opts Options) withDefaults() Options {
 	return opts
 }
 
+// PostgresStore implements Store using a Postgres database.
 type PostgresStore struct {
 	db *sql.DB
 }
 
+// NewPostgresStore creates a PostgresStore backed by the given database connection.
 func NewPostgresStore(db *sql.DB) *PostgresStore {
 	return &PostgresStore{db: db}
 }
 
+// Cleanup deletes expired idempotency keys from the database.
 func (store *PostgresStore) Cleanup(ctx context.Context, now time.Time) error {
 	_, err := store.db.ExecContext(ctx, deleteExpiredIdempotencyKeysSQL, now.UTC())
 	return err
 }
 
+// Begin starts an idempotent operation, returning a replay result if one exists or inserting a new key.
 func (store *PostgresStore) Begin(ctx context.Context, scope, key, requestHash string, ttl time.Duration, now time.Time) (*ReplayResult, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -212,6 +227,7 @@ func (store *PostgresStore) Begin(ctx context.Context, scope, key, requestHash s
 	}, nil
 }
 
+// Complete records the response for a completed idempotent operation.
 func (store *PostgresStore) Complete(ctx context.Context, scope, key string, result ReplayResult, completedAt time.Time) error {
 	_, err := store.db.ExecContext(
 		ctx,

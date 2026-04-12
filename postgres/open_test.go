@@ -96,16 +96,3 @@ func restoreSQLOpen(t *testing.T, opener func(string, string) (*sql.DB, error)) 
 		sqlOpenMu.Unlock()
 	})
 }
-
-func closePostgresTestDB(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) {
-	t.Helper()
-	t.Cleanup(func() {
-		mock.ExpectClose()
-		if err := db.Close(); err != nil {
-			t.Errorf("close db: %v", err)
-		}
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Errorf("sql expectations: %v", err)
-		}
-	})
-}
