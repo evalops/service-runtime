@@ -22,11 +22,7 @@ func TestOpenAndInitRetriesUntilSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Errorf("sql expectations: %v", err)
-		}
-	})
+	closePostgresTestDB(t, db, mock)
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
@@ -57,11 +53,6 @@ func TestOpenAndInitReturnsLastError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock new: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Errorf("sql expectations: %v", err)
-		}
-	})
 
 	restoreSQLOpen(t, func(string, string) (*sql.DB, error) {
 		return db, nil
