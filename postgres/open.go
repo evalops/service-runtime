@@ -35,12 +35,12 @@ func OpenAndInit(ctx context.Context, databaseURL string, init InitFunc, opts Op
 		attemptCtx, cancel := context.WithTimeout(ctx, opts.PingTimeout)
 		defer cancel()
 
-		if err := db.PingContext(attemptCtx); err != nil {
-			return fmt.Errorf("ping_postgres: %w", err)
+		if pingErr := db.PingContext(attemptCtx); pingErr != nil {
+			return fmt.Errorf("ping_postgres: %w", pingErr)
 		}
 		if init != nil {
-			if err := init(attemptCtx, db); err != nil {
-				return err
+			if initErr := init(attemptCtx, db); initErr != nil {
+				return initErr
 			}
 		}
 		return nil

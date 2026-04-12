@@ -24,7 +24,10 @@ func RegisterDBStats(serviceName string, statFunc func() sql.DBStats, opts DBSta
 
 	key := fmt.Sprintf("%T:%p:%s", opts.Registerer, opts.Registerer, metricPrefix(serviceName))
 	onceValue, _ := dbStatsRegistrations.LoadOrStore(key, &sync.Once{})
-	once := onceValue.(*sync.Once)
+	once, ok := onceValue.(*sync.Once)
+	if !ok {
+		return fmt.Errorf("db_stats_registration_invalid: %T", onceValue)
+	}
 
 	var registerErr error
 	once.Do(func() {
