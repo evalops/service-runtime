@@ -113,6 +113,9 @@ func TestPublishChangeWrapsCloudEvent(t *testing.T) {
 	if event.TenantID != "org-123" {
 		t.Fatalf("unexpected tenant %q", event.TenantID)
 	}
+	if event.DataContentType != "application/json" {
+		t.Fatalf("unexpected data content type %q", event.DataContentType)
+	}
 	var data map[string]any
 	if err := json.Unmarshal(event.Data, &data); err != nil {
 		t.Fatalf("decode event data: %v", err)
@@ -122,6 +125,58 @@ func TestPublishChangeWrapsCloudEvent(t *testing.T) {
 	}
 	if data["value"] != "d-1" {
 		t.Fatalf("unexpected event data value %#v", data["value"])
+	}
+}
+
+func TestPublishChangeWrapsProtoEnvelopeWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	publisher := &Publisher{
+		js:            &fakeJetStream{},
+		logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+		wireFormat:    WireFormatProto,
+	}
+
+	change := Change{
+		Sequence:      42,
+		TenantID:      "org-123",
+		AggregateType: "deal",
+		Operation:     "create",
+		RecordedAt:    time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	}
+
+	fake := publisher.js.(*fakeJetStream)
+	publisher.PublishChange(context.Background(), change)
+
+	event, err := UnmarshalEnvelope(fake.payload)
+	if err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if event.WireFormat != WireFormatProto {
+		t.Fatalf("unexpected wire format %q", event.WireFormat)
+	}
+	if event.Type != "pipeline.changes.deal.create" {
+		t.Fatalf("unexpected event type %q", event.Type)
+	}
+	if event.Source != "pipeline" {
+		t.Fatalf("unexpected source %q", event.Source)
+	}
+	if event.TenantID != "org-123" {
+		t.Fatalf("unexpected tenant %q", event.TenantID)
+	}
+	if event.DataContentType != "application/protobuf" {
+		t.Fatalf("unexpected data content type %q", event.DataContentType)
+	}
+	target := &wrapperspb.StringValue{}
+	if err := UnmarshalPayload(event.Payload, target); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if target.Value != "d-1" {
+		t.Fatalf("unexpected payload value %q", target.Value)
 	}
 }
 
@@ -170,6 +225,46 @@ func TestNewPayloadAndUnmarshalPayload(t *testing.T) {
 	}
 	if target.Value != "d-1" {
 		t.Fatalf("unexpected target value %q", target.Value)
+	}
+}
+
+func TestUnmarshalEnvelopeSupportsLegacyJSON(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalEnvelope(Envelope{
+		SpecVersion: "1.0",
+		ID:          "evt-1",
+		Type:        "pipeline.changes.deal.create",
+		Source:      "pipeline",
+		Time:        time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		TenantID:    "org-123",
+		Payload:     MustPayload(wrapperspb.String("d-1")),
+	}, WireFormatJSON)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+
+	event, err := UnmarshalEnvelope(payload)
+	if err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if event.WireFormat != WireFormatJSON {
+		t.Fatalf("unexpected wire format %q", event.WireFormat)
+	}
+	target := &wrapperspb.StringValue{}
+	if err := UnmarshalPayload(event.Payload, target); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if target.Value != "d-1" {
+		t.Fatalf("unexpected payload value %q", target.Value)
+	}
+}
+
+func TestUnmarshalEnvelopeRejectsEmptyPayload(t *testing.T) {
+	t.Parallel()
+
+	if _, err := UnmarshalEnvelope(nil); !errors.Is(err, errEnvelopeEmpty) {
+		t.Fatalf("expected errEnvelopeEmpty, got %v", err)
 	}
 }
 
