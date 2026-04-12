@@ -268,6 +268,37 @@ func TestUnmarshalEnvelopeRejectsEmptyPayload(t *testing.T) {
 	}
 }
 
+func TestUnmarshalEnvelopeSupportsProtoLeadingTagByte(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalEnvelope(Envelope{
+		SpecVersion: "1.0",
+		ID:          "evt-1",
+		Type:        "pipeline.changes.deal.create",
+		Source:      "pipeline",
+		Time:        time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		TenantID:    "org-123",
+		Payload:     MustPayload(wrapperspb.String("d-1")),
+	}, WireFormatProto)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if len(payload) == 0 || payload[0] != 0x0a {
+		t.Fatalf("expected protobuf envelope to start with 0x0a, got %x", payload)
+	}
+
+	event, err := UnmarshalEnvelope(payload)
+	if err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if event.WireFormat != WireFormatProto {
+		t.Fatalf("unexpected wire format %q", event.WireFormat)
+	}
+	if event.SpecVersion != "1.0" {
+		t.Fatalf("unexpected spec version %q", event.SpecVersion)
+	}
+}
+
 func TestNewPayloadRejectsNilMessage(t *testing.T) {
 	t.Parallel()
 

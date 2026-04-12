@@ -343,13 +343,28 @@ func marshalEnvelopeProto(envelope Envelope) ([]byte, error) {
 }
 
 func UnmarshalEnvelope(data []byte) (Envelope, error) {
-	index := firstNonSpaceIndex(data)
-	if index < 0 {
+	if len(data) == 0 {
 		return Envelope{}, errEnvelopeEmpty
 	}
-	switch detectWireFormat(data[index:]) {
+
+	trimmed, isTrimmed := trimLeadingJSONWhitespace(data)
+	if len(trimmed) == 0 {
+		return Envelope{}, errEnvelopeEmpty
+	}
+
+	switch detectWireFormat(trimmed) {
 	case WireFormatJSON:
-		return unmarshalEnvelopeJSON(data[index:])
+		envelope, err := unmarshalEnvelopeJSON(trimmed)
+		if err == nil {
+			return envelope, nil
+		}
+		if isTrimmed {
+			protoEnvelope, protoErr := unmarshalEnvelopeProto(data)
+			if protoErr == nil {
+				return protoEnvelope, nil
+			}
+		}
+		return Envelope{}, err
 	case WireFormatProto:
 		return unmarshalEnvelopeProto(data)
 	default:
@@ -427,16 +442,16 @@ func detectWireFormat(data []byte) WireFormat {
 	return WireFormatProto
 }
 
-func firstNonSpaceIndex(data []byte) int {
+func trimLeadingJSONWhitespace(data []byte) ([]byte, bool) {
 	for index, value := range data {
 		switch value {
 		case ' ', '\n', '\r', '\t':
 			continue
 		default:
-			return index
+			return data[index:], index > 0
 		}
 	}
-	return -1
+	return nil, false
 }
 
 func normalizedWireFormat(wireFormat WireFormat) WireFormat {
