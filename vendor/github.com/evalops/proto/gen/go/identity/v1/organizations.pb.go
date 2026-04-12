@@ -22,11 +22,13 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Organization is the canonical org/workspace type.
+// Unifies gate's Organization (tenant.proto) and chat's WorkspaceInfo (auth.proto).
 type Organization struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Slug          string                 `protobuf:"bytes,2,opt,name=slug,proto3" json:"slug,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Slug          string                 `protobuf:"bytes,3,opt,name=slug,proto3" json:"slug,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -69,16 +71,16 @@ func (x *Organization) GetId() string {
 	return ""
 }
 
-func (x *Organization) GetSlug() string {
+func (x *Organization) GetName() string {
 	if x != nil {
-		return x.Slug
+		return x.Name
 	}
 	return ""
 }
 
-func (x *Organization) GetName() string {
+func (x *Organization) GetSlug() string {
 	if x != nil {
-		return x.Name
+		return x.Slug
 	}
 	return ""
 }
@@ -90,10 +92,67 @@ func (x *Organization) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// OrganizationMembership is the canonical "org plus this user's role in it"
+// view. It replaces chat's WorkspaceInfo without pushing membership-scoped
+// fields onto Organization itself.
+type OrganizationMembership struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Organization  *Organization          `protobuf:"bytes,1,opt,name=organization,proto3" json:"organization,omitempty"`
+	Role          string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrganizationMembership) Reset() {
+	*x = OrganizationMembership{}
+	mi := &file_identity_v1_organizations_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrganizationMembership) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrganizationMembership) ProtoMessage() {}
+
+func (x *OrganizationMembership) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_organizations_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrganizationMembership.ProtoReflect.Descriptor instead.
+func (*OrganizationMembership) Descriptor() ([]byte, []int) {
+	return file_identity_v1_organizations_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *OrganizationMembership) GetOrganization() *Organization {
+	if x != nil {
+		return x.Organization
+	}
+	return nil
+}
+
+func (x *OrganizationMembership) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+// Member is the canonical org membership type.
+// Unifies gate's OrgMember and chat's WorkspaceMemberInfo.
 type Member struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	OrganizationId     string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
-	UserId             string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserId             string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	OrganizationId     string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
 	Email              string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	Name               string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
 	Picture            string                 `protobuf:"bytes,5,opt,name=picture,proto3" json:"picture,omitempty"`
@@ -108,7 +167,7 @@ type Member struct {
 
 func (x *Member) Reset() {
 	*x = Member{}
-	mi := &file_identity_v1_organizations_proto_msgTypes[1]
+	mi := &file_identity_v1_organizations_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -120,7 +179,7 @@ func (x *Member) String() string {
 func (*Member) ProtoMessage() {}
 
 func (x *Member) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_organizations_proto_msgTypes[1]
+	mi := &file_identity_v1_organizations_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -133,19 +192,19 @@ func (x *Member) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Member.ProtoReflect.Descriptor instead.
 func (*Member) Descriptor() ([]byte, []int) {
-	return file_identity_v1_organizations_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *Member) GetOrganizationId() string {
-	if x != nil {
-		return x.OrganizationId
-	}
-	return ""
+	return file_identity_v1_organizations_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Member) GetUserId() string {
 	if x != nil {
 		return x.UserId
+	}
+	return ""
+}
+
+func (x *Member) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
 	}
 	return ""
 }
@@ -206,14 +265,16 @@ func (x *Member) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// APIKey is the canonical API key type.
+// Unifies gate's APIKey (tenant.proto) and chat's APIKeyInfo (auth.proto).
 type APIKey struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
 	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Prefix         string                 `protobuf:"bytes,4,opt,name=prefix,proto3" json:"prefix,omitempty"`
-	Role           string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
-	Provider       string                 `protobuf:"bytes,6,opt,name=provider,proto3" json:"provider,omitempty"`
+	Provider       string                 `protobuf:"bytes,5,opt,name=provider,proto3" json:"provider,omitempty"`
+	Role           string                 `protobuf:"bytes,6,opt,name=role,proto3" json:"role,omitempty"`
 	Label          string                 `protobuf:"bytes,7,opt,name=label,proto3" json:"label,omitempty"`
 	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	ExpiresAt      *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
@@ -223,7 +284,7 @@ type APIKey struct {
 
 func (x *APIKey) Reset() {
 	*x = APIKey{}
-	mi := &file_identity_v1_organizations_proto_msgTypes[2]
+	mi := &file_identity_v1_organizations_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -235,7 +296,7 @@ func (x *APIKey) String() string {
 func (*APIKey) ProtoMessage() {}
 
 func (x *APIKey) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_organizations_proto_msgTypes[2]
+	mi := &file_identity_v1_organizations_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -248,7 +309,7 @@ func (x *APIKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use APIKey.ProtoReflect.Descriptor instead.
 func (*APIKey) Descriptor() ([]byte, []int) {
-	return file_identity_v1_organizations_proto_rawDescGZIP(), []int{2}
+	return file_identity_v1_organizations_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *APIKey) GetId() string {
@@ -279,16 +340,16 @@ func (x *APIKey) GetPrefix() string {
 	return ""
 }
 
-func (x *APIKey) GetRole() string {
+func (x *APIKey) GetProvider() string {
 	if x != nil {
-		return x.Role
+		return x.Provider
 	}
 	return ""
 }
 
-func (x *APIKey) GetProvider() string {
+func (x *APIKey) GetRole() string {
 	if x != nil {
-		return x.Provider
+		return x.Role
 	}
 	return ""
 }
@@ -321,13 +382,16 @@ const file_identity_v1_organizations_proto_rawDesc = "" +
 	"\x1fidentity/v1/organizations.proto\x12\videntity.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x81\x01\n" +
 	"\fOrganization\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\x129\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04slug\x18\x03 \x01(\tR\x04slug\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xd3\x02\n" +
-	"\x06Member\x12'\n" +
-	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x14\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"k\n" +
+	"\x16OrganizationMembership\x12=\n" +
+	"\forganization\x18\x01 \x01(\v2\x19.identity.v1.OrganizationR\forganization\x12\x12\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\"\xd3\x02\n" +
+	"\x06Member\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12'\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12\x18\n" +
 	"\apicture\x18\x05 \x01(\tR\apicture\x12\x12\n" +
@@ -342,14 +406,14 @@ const file_identity_v1_organizations_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x16\n" +
-	"\x06prefix\x18\x04 \x01(\tR\x06prefix\x12\x12\n" +
-	"\x04role\x18\x05 \x01(\tR\x04role\x12\x1a\n" +
-	"\bprovider\x18\x06 \x01(\tR\bprovider\x12\x14\n" +
+	"\x06prefix\x18\x04 \x01(\tR\x06prefix\x12\x1a\n" +
+	"\bprovider\x18\x05 \x01(\tR\bprovider\x12\x12\n" +
+	"\x04role\x18\x06 \x01(\tR\x04role\x12\x14\n" +
 	"\x05label\x18\a \x01(\tR\x05label\x129\n" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"expires_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAtBAZ?github.com/evalops/identity/gen/proto/go/identity/v1;identityv1b\x06proto3"
+	"expires_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAtB8Z6github.com/evalops/proto/gen/go/identity/v1;identityv1b\x06proto3"
 
 var (
 	file_identity_v1_organizations_proto_rawDescOnce sync.Once
@@ -363,23 +427,25 @@ func file_identity_v1_organizations_proto_rawDescGZIP() []byte {
 	return file_identity_v1_organizations_proto_rawDescData
 }
 
-var file_identity_v1_organizations_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_identity_v1_organizations_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_identity_v1_organizations_proto_goTypes = []any{
-	(*Organization)(nil),          // 0: identity.v1.Organization
-	(*Member)(nil),                // 1: identity.v1.Member
-	(*APIKey)(nil),                // 2: identity.v1.APIKey
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*Organization)(nil),           // 0: identity.v1.Organization
+	(*OrganizationMembership)(nil), // 1: identity.v1.OrganizationMembership
+	(*Member)(nil),                 // 2: identity.v1.Member
+	(*APIKey)(nil),                 // 3: identity.v1.APIKey
+	(*timestamppb.Timestamp)(nil),  // 4: google.protobuf.Timestamp
 }
 var file_identity_v1_organizations_proto_depIdxs = []int32{
-	3, // 0: identity.v1.Organization.created_at:type_name -> google.protobuf.Timestamp
-	3, // 1: identity.v1.Member.created_at:type_name -> google.protobuf.Timestamp
-	3, // 2: identity.v1.APIKey.created_at:type_name -> google.protobuf.Timestamp
-	3, // 3: identity.v1.APIKey.expires_at:type_name -> google.protobuf.Timestamp
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	4, // 0: identity.v1.Organization.created_at:type_name -> google.protobuf.Timestamp
+	0, // 1: identity.v1.OrganizationMembership.organization:type_name -> identity.v1.Organization
+	4, // 2: identity.v1.Member.created_at:type_name -> google.protobuf.Timestamp
+	4, // 3: identity.v1.APIKey.created_at:type_name -> google.protobuf.Timestamp
+	4, // 4: identity.v1.APIKey.expires_at:type_name -> google.protobuf.Timestamp
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_identity_v1_organizations_proto_init() }
@@ -393,7 +459,7 @@ func file_identity_v1_organizations_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_identity_v1_organizations_proto_rawDesc), len(file_identity_v1_organizations_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
