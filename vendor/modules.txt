@@ -21,8 +21,9 @@ github.com/cespare/xxhash/v2
 # github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
 ## explicit
 github.com/dgryski/go-rendezvous
-# github.com/evalops/proto v0.0.0-20260412154303-91e43cca162d
+# github.com/evalops/proto v0.0.0-20260413131057-c527f14dda18
 ## explicit; go 1.23.0
+github.com/evalops/proto/gen/go/config/v1
 github.com/evalops/proto/gen/go/events/v1
 github.com/evalops/proto/gen/go/identity/v1
 # github.com/go-chi/chi/v5 v5.2.5
