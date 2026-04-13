@@ -140,6 +140,54 @@ func TestMetricsHandlerUsesCustomGatherer(t *testing.T) {
 	}
 }
 
+func TestRequestLoggingMiddlewareUsesCaptureResponseWriter(t *testing.T) {
+	t.Parallel()
+
+	registry := prometheus.NewRegistry()
+	metrics, err := NewMetrics("testkit", MetricsOptions{
+		Registerer: registry,
+		Gatherer:   registry,
+	})
+	if err != nil {
+		t.Fatalf("new metrics: %v", err)
+	}
+
+	var output strings.Builder
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+
+	router := chi.NewRouter()
+	router.Use(RequestLoggingMiddleware(logger, metrics))
+	router.Post("/items/{itemID}", func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("X-Request-Id", "req-abc")
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"created":true}`))
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/items/42", nil))
+
+	// Verify status code was captured and recorded in metrics.
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	if !containsMetric(metricFamilies, "testkit_http_requests_total") {
+		t.Fatalf("expected testkit_http_requests_total metric after refactor")
+	}
+
+	// Verify log line contains the captured status code (201) and route pattern.
+	logLine := output.String()
+	if !strings.Contains(logLine, "status=201") {
+		t.Fatalf("expected status=201 in log output, got %q", logLine)
+	}
+	if !strings.Contains(logLine, "request_id=req-abc") {
+		t.Fatalf("expected request_id=req-abc in log output, got %q", logLine)
+	}
+	if !strings.Contains(logLine, "route=/items/{itemID}") {
+		t.Fatalf("expected route=/items/{itemID} in log output, got %q", logLine)
+	}
+}
+
 func containsMetric(metricFamilies []*dto.MetricFamily, name string) bool {
 	for _, family := range metricFamilies {
 		if family.GetName() == name {
