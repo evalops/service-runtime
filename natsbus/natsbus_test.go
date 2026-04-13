@@ -95,7 +95,9 @@ func TestPublishChangeWrapsCloudEvent(t *testing.T) {
 	}
 
 	fake, ok := publisher.js.(*fakeJetStream)
-	if !ok { t.Fatal("unexpected type") }
+	if !ok {
+		t.Fatal("unexpected type")
+	}
 	publisher.PublishChange(context.Background(), change)
 
 	if fake.subject != "pipeline.changes.deal.create" {
@@ -152,7 +154,9 @@ func TestPublishChangeWrapsProtoEnvelopeWhenConfigured(t *testing.T) {
 	}
 
 	fake, ok := publisher.js.(*fakeJetStream)
-	if !ok { t.Fatal("unexpected type") }
+	if !ok {
+		t.Fatal("unexpected type")
+	}
 	publisher.PublishChange(context.Background(), change)
 
 	event, err := UnmarshalEnvelope(fake.payload)
@@ -205,7 +209,9 @@ func TestPublishChangeWrapsProtoHeadersWhenConfigured(t *testing.T) {
 	}
 
 	fake, ok := publisher.js.(*fakeJetStream)
-	if !ok { t.Fatal("unexpected type") }
+	if !ok {
+		t.Fatal("unexpected type")
+	}
 	publisher.PublishChange(context.Background(), change)
 
 	if got := fake.header.Get(headerSpecVersion); got != "1.0" {
@@ -449,7 +455,10 @@ func TestPublishReturnsNilOnSuccess(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
-	fake := publisher.js.(*fakeJetStream)
+	fake, ok := publisher.js.(*fakeJetStream)
+	if !ok {
+		t.Fatalf("expected fakeJetStream, got %T", publisher.js)
+	}
 	if fake.subject != "pipeline.changes.deal.create" {
 		t.Fatalf("expected message to be published, got subject %q", fake.subject)
 	}
