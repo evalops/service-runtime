@@ -37,6 +37,65 @@ func TestFileStoreEnabled(t *testing.T) {
 	}
 }
 
+func TestFileStoreEnabledForRolloutPercent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flags.json")
+	const flagKey = "llm_gateway.model_routing.provider_failover"
+	writeSnapshot(t, path, &configv1.FeatureFlagSnapshot{
+		SchemaVersion: 1,
+		Flags: []*configv1.FeatureFlag{
+			{Key: flagKey, Enabled: true, RolloutPercent: 30},
+		},
+	})
+
+	store, err := NewFileStore(path, Options{})
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	var (
+		inRolloutSubject  string
+		outRolloutSubject string
+	)
+	for _, subject := range []string{"org-alpha", "org-bravo", "org-charlie", "org-delta", "org-echo"} {
+		if rolloutBucket(flagKey, subject) < 30 && inRolloutSubject == "" {
+			inRolloutSubject = subject
+		}
+		if rolloutBucket(flagKey, subject) >= 30 && outRolloutSubject == "" {
+			outRolloutSubject = subject
+		}
+	}
+	if inRolloutSubject == "" || outRolloutSubject == "" {
+		t.Fatalf("expected deterministic test subjects for rollout buckets")
+	}
+
+	if !store.EnabledFor(flagKey, inRolloutSubject) {
+		t.Fatalf("expected %q to be inside rollout", inRolloutSubject)
+	}
+	if store.EnabledFor(flagKey, outRolloutSubject) {
+		t.Fatalf("expected %q to be outside rollout", outRolloutSubject)
+	}
+}
+
+func TestFileStoreEnabledForBlankSubjectUsesFullFlagState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flags.json")
+	const flagKey = "platform.kill_switches.prompts.resolve_api"
+	writeSnapshot(t, path, &configv1.FeatureFlagSnapshot{
+		SchemaVersion: 1,
+		Flags: []*configv1.FeatureFlag{
+			{Key: flagKey, Enabled: true, RolloutPercent: 10},
+		},
+	})
+
+	store, err := NewFileStore(path, Options{})
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	if !store.EnabledFor(flagKey, "") {
+		t.Fatalf("expected blank subject to honor enabled state")
+	}
+}
+
 func TestFileStoreReloadsUpdatedSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "flags.json")
 	now := time.Date(2026, time.April, 13, 12, 0, 0, 0, time.UTC)
