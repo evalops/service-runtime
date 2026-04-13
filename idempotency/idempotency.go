@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/evalops/service-runtime/authmw"
@@ -44,12 +45,16 @@ type Store interface {
 // ScopeFunc derives the idempotency scope (e.g., org+method+path) from a request.
 type ScopeFunc func(request *http.Request) (string, error)
 
+// DefaultCleanupInterval is the default interval between store cleanup runs.
+const DefaultCleanupInterval = 5 * time.Minute
+
 // Options configures the idempotency middleware.
 type Options struct {
-	TTL       time.Duration
-	ScopeFunc ScopeFunc
-	Logger    *slog.Logger
-	Now       func() time.Time
+	TTL             time.Duration
+	CleanupInterval time.Duration // minimum interval between cleanup runs (default: 5m)
+	ScopeFunc       ScopeFunc
+	Logger          *slog.Logger
+	Now             func() time.Time
 }
 
 // Middleware returns an HTTP middleware that enforces idempotency using the given store and TTL.
@@ -60,6 +65,11 @@ func Middleware(store Store, ttl time.Duration) func(http.Handler) http.Handler 
 // MiddlewareWithOptions is like Middleware but accepts a full Options struct.
 func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Handler {
 	opts = opts.withDefaults()
+
+	var (
+		lastCleanupMu sync.Mutex
+		lastCleanup   time.Time
+	)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -84,9 +94,17 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 			request.Body = io.NopCloser(bytes.NewReader(body))
 
 			now := opts.Now().UTC()
-			if err := store.Cleanup(request.Context(), now); err != nil {
-				httpkit.WriteError(writer, http.StatusInternalServerError, "idempotency_failed", err.Error())
-				return
+
+			lastCleanupMu.Lock()
+			shouldCleanup := lastCleanup.IsZero() || now.Sub(lastCleanup) >= opts.CleanupInterval
+			if shouldCleanup {
+				lastCleanup = now
+			}
+			lastCleanupMu.Unlock()
+			if shouldCleanup {
+				if err := store.Cleanup(request.Context(), now); err != nil {
+					opts.Logger.Warn("idempotency cleanup failed", "error", err)
+				}
 			}
 
 			hash := RequestHash(request.Method, request.URL.Path, body)
@@ -152,6 +170,9 @@ func RequestHash(method, path string, body []byte) string {
 func (opts Options) withDefaults() Options {
 	if opts.TTL <= 0 {
 		opts.TTL = DefaultTTL
+	}
+	if opts.CleanupInterval <= 0 {
+		opts.CleanupInterval = DefaultCleanupInterval
 	}
 	if opts.ScopeFunc == nil {
 		opts.ScopeFunc = DefaultScope
