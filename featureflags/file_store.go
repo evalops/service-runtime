@@ -93,7 +93,8 @@ func (store *FileStore) EnabledFor(key string, subject string) bool {
 }
 
 // HasExplicitRollout reports whether the named flag has a non-zero rollout_percent,
-// indicating it uses gradual rollout rather than simple on/off semantics.
+// regardless of whether the flag is currently enabled. This distinguishes flags that
+// use gradual rollout semantics from simple on/off flags.
 func (store *FileStore) HasExplicitRollout(key string) bool {
 	flag, ok := store.Lookup(key)
 	return ok && flag.GetRolloutPercent() > 0
@@ -223,7 +224,8 @@ func (store *FileStore) logWarn(msg string, args ...any) {
 }
 
 // effectiveRolloutPercent returns the effective rollout percentage for a flag.
-// Proto3 uint32 defaults to 0 when unset, so 0 is treated as 100% (full rollout).
+// Proto3 scalar fields lack presence tracking, so 0 and "unset" are
+// indistinguishable. By convention, 0 is treated as 100% (full rollout).
 // To disable a flag, set enabled=false rather than rollout_percent=0.
 // Values above 100 are clamped to 100.
 func effectiveRolloutPercent(value uint32) uint32 {
