@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/alicebob/miniredis/v2 v2.37.0
-	github.com/evalops/proto v0.0.0-20260412154303-91e43cca162d
+	github.com/evalops/proto v0.0.0-20260413131057-c527f14dda18
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.1
