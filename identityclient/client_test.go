@@ -335,17 +335,17 @@ func TestStoreIntrospectionPrunesExpiredEntries(t *testing.T) {
 	t.Parallel()
 
 	client := New(Config{CacheTTL: time.Minute})
-	client.introspection["expired-token"] = cachedIntrospection{
+	client.introspection.Put("expired-token", cachedIntrospection{
 		expiresAt: time.Now().Add(-time.Minute),
 		result:    protoIntrospectionResult(true, "expired-org"),
-	}
+	})
 
 	client.storeIntrospection("fresh-token", protoIntrospectionResult(true, "fresh-org"))
 
-	if _, ok := client.introspection["expired-token"]; ok {
+	if _, ok := client.introspection.Get("expired-token"); ok {
 		t.Fatal("expected expired cache entry to be pruned on store")
 	}
-	fresh, ok := client.introspection["fresh-token"]
+	fresh, ok := client.introspection.Get("fresh-token")
 	if !ok {
 		t.Fatal("expected fresh cache entry to be stored")
 	}
@@ -499,6 +499,204 @@ func TestIssueServiceTokenAllowsMTLSWithoutBootstrapKey(t *testing.T) {
 	}
 	if issued.GetToken() != "identity-service-token" {
 		t.Fatalf("unexpected issued token %q", issued.GetToken())
+	}
+}
+
+func TestIntrospectionCacheEvictsLeastRecentlyUsedWhenFull(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			callCount++
+			token := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(
+					fmt.Sprintf(`{"active":true,"organization_id":"org-%s"}`, token),
+				)),
+				Header: make(http.Header),
+			}, nil
+		}),
+	}
+
+	client := New(Config{
+		IntrospectURL:  "https://identity.test/v1/tokens/introspect",
+		RequestTimeout: time.Second,
+		CacheTTL:       time.Minute,
+		MaxCacheSize:   2,
+		HTTPClient:     httpClient,
+	})
+
+	// Introspect 3 tokens: A, B, C
+	for _, token := range []string{"token-A", "token-B", "token-C"} {
+		if _, err := client.IntrospectProto(context.Background(), token); err != nil {
+			t.Fatalf("introspect %s: %v", token, err)
+		}
+	}
+	if callCount != 3 {
+		t.Fatalf("expected 3 calls, got %d", callCount)
+	}
+
+	// Token A should have been evicted (LRU), so cache miss on fallback lookup
+	client.cacheLock.Lock()
+	size := client.introspection.Len()
+	_, hasA := client.introspection.Get("token-A")
+	_, hasB := client.introspection.Get("token-B")
+	_, hasC := client.introspection.Get("token-C")
+	client.cacheLock.Unlock()
+
+	if size != 2 {
+		t.Fatalf("expected cache size 2, got %d", size)
+	}
+	if hasA {
+		t.Fatal("expected token-A to be evicted")
+	}
+	if !hasB {
+		t.Fatal("expected token-B to be cached")
+	}
+	if !hasC {
+		t.Fatal("expected token-C to be cached")
+	}
+}
+
+func TestIntrospectionCachePromotesOnHit(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			callCount++
+			token := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+			if callCount <= 2 {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(
+						fmt.Sprintf(`{"active":true,"organization_id":"org-%s"}`, token),
+					)),
+					Header: make(http.Header),
+				}, nil
+			}
+			// After the first two, simulate an outage so cache fallback is used for A
+			if callCount == 3 {
+				return nil, context.DeadlineExceeded
+			}
+			// Fourth call (token-C) succeeds
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(
+					fmt.Sprintf(`{"active":true,"organization_id":"org-%s"}`, token),
+				)),
+				Header: make(http.Header),
+			}, nil
+		}),
+	}
+
+	client := New(Config{
+		IntrospectURL:  "https://identity.test/v1/tokens/introspect",
+		RequestTimeout: time.Second,
+		CacheTTL:       time.Minute,
+		MaxCacheSize:   2,
+		HTTPClient:     httpClient,
+	})
+
+	// Introspect A then B
+	if _, err := client.IntrospectProto(context.Background(), "token-A"); err != nil {
+		t.Fatalf("introspect A: %v", err)
+	}
+	if _, err := client.IntrospectProto(context.Background(), "token-B"); err != nil {
+		t.Fatalf("introspect B: %v", err)
+	}
+
+	// Introspect A again (outage -> cache hit -> promotes A)
+	result, err := client.IntrospectProto(context.Background(), "token-A")
+	if err != nil {
+		t.Fatalf("introspect A (cache fallback): %v", err)
+	}
+	if result.GetOrganizationId() != "org-token-A" {
+		t.Fatalf("expected cached org for A, got %q", result.GetOrganizationId())
+	}
+
+	// Now introspect C — this should evict B (not A, because A was recently accessed)
+	if _, err := client.IntrospectProto(context.Background(), "token-C"); err != nil {
+		t.Fatalf("introspect C: %v", err)
+	}
+
+	client.cacheLock.Lock()
+	_, hasA := client.introspection.Get("token-A")
+	_, hasB := client.introspection.Get("token-B")
+	_, hasC := client.introspection.Get("token-C")
+	client.cacheLock.Unlock()
+
+	if !hasA {
+		t.Fatal("expected token-A to be retained (promoted)")
+	}
+	if hasB {
+		t.Fatal("expected token-B to be evicted")
+	}
+	if !hasC {
+		t.Fatal("expected token-C to be cached")
+	}
+}
+
+func TestIntrospectionCacheRespectsDefaultMaxSize(t *testing.T) {
+	t.Parallel()
+
+	client := New(Config{
+		IntrospectURL:  "https://identity.test/v1/tokens/introspect",
+		RequestTimeout: time.Second,
+		CacheTTL:       time.Minute,
+	})
+
+	client.cacheLock.Lock()
+	maxSize := client.introspection.MaxSize()
+	client.cacheLock.Unlock()
+
+	if maxSize != 10000 {
+		t.Fatalf("expected default max size 10000, got %d", maxSize)
+	}
+}
+
+func TestServiceTokenCacheEvictsWhenFull(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	identityServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		writeJSON(t, w, http.StatusCreated, map[string]any{
+			"token":      fmt.Sprintf("token-%d", callCount),
+			"token_type": "Bearer",
+			"claims": map[string]any{
+				"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			},
+		})
+	}))
+	defer identityServer.Close()
+
+	client := New(Config{
+		ServiceTokensURL: identityServer.URL + "/v1/service-tokens",
+		BootstrapKey:     "identity-bootstrap-key",
+		RequestTimeout:   time.Second,
+		CacheTTL:         time.Minute,
+		MaxCacheSize:     2,
+		HTTPClient:       http.DefaultClient,
+	})
+
+	// Issue tokens for 3 different org/service/scope combinations
+	for _, org := range []string{"org-1", "org-2", "org-3"} {
+		if _, err := client.ResolveServiceToken(
+			context.Background(), org, "svc", []string{"read"}, time.Minute,
+		); err != nil {
+			t.Fatalf("resolve %s: %v", org, err)
+		}
+	}
+
+	client.serviceTokenLock.Lock()
+	size := client.serviceTokens.Len()
+	client.serviceTokenLock.Unlock()
+
+	if size != 2 {
+		t.Fatalf("expected service token cache size 2, got %d", size)
 	}
 }
 
