@@ -11,11 +11,11 @@ import (
 
 // RetryConfig tunes exponential-backoff retry behaviour.
 type RetryConfig struct {
-	MaxAttempts  int                // total attempts including the first (default: 3)
-	InitialDelay time.Duration     // base delay before first retry (default: 100ms)
-	MaxDelay     time.Duration     // upper bound on computed delay (default: 10s)
-	Multiplier   float64           // backoff multiplier (default: 2.0)
-	IsRetryable  func(error) bool  // if non-nil, called to decide retryability
+	MaxAttempts  int              // total attempts including the first (default: 3)
+	InitialDelay time.Duration    // base delay before first retry (default: 100ms)
+	MaxDelay     time.Duration    // upper bound on computed delay (default: 10s)
+	Multiplier   float64          // backoff multiplier (default: 2.0)
+	IsRetryable  func(error) bool // if non-nil, called to decide retryability
 }
 
 func (c RetryConfig) withDefaults() RetryConfig {
@@ -102,6 +102,7 @@ func backoffDelay(cfg RetryConfig, attempt int) time.Duration {
 	if delayF <= 0 {
 		return 0
 	}
+	//nolint:gosec // Backoff jitter is non-cryptographic and only used to spread retries.
 	jittered := rand.Int64N(int64(delayF))
 	return time.Duration(jittered)
 }
