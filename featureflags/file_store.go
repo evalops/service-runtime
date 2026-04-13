@@ -79,7 +79,7 @@ func (store *FileStore) EnabledFor(key string, subject string) bool {
 		return false
 	}
 
-	rolloutPercent := normalizeRolloutPercent(flag.GetRolloutPercent())
+	rolloutPercent := effectiveRolloutPercent(flag.GetRolloutPercent())
 	if rolloutPercent >= 100 {
 		return true
 	}
@@ -90,6 +90,13 @@ func (store *FileStore) EnabledFor(key string, subject string) bool {
 	}
 
 	return rolloutBucket(key, subject) < rolloutPercent
+}
+
+// HasExplicitRollout reports whether the named flag has a non-zero rollout_percent,
+// indicating it uses gradual rollout rather than simple on/off semantics.
+func (store *FileStore) HasExplicitRollout(key string) bool {
+	flag, ok := store.Lookup(key)
+	return ok && flag.GetRolloutPercent() > 0
 }
 
 // Lookup returns a cloned copy of the named flag when present.
@@ -215,7 +222,11 @@ func (store *FileStore) logWarn(msg string, args ...any) {
 	}
 }
 
-func normalizeRolloutPercent(value uint32) uint32 {
+// effectiveRolloutPercent returns the effective rollout percentage for a flag.
+// Proto3 uint32 defaults to 0 when unset, so 0 is treated as 100% (full rollout).
+// To disable a flag, set enabled=false rather than rollout_percent=0.
+// Values above 100 are clamped to 100.
+func effectiveRolloutPercent(value uint32) uint32 {
 	switch {
 	case value == 0:
 		return 100
