@@ -31,6 +31,9 @@ func (c RetryConfig) withDefaults() RetryConfig {
 	if c.Multiplier <= 0 {
 		c.Multiplier = 2.0
 	}
+	if c.Multiplier < 1.0 {
+		c.Multiplier = 1.0
+	}
 	return c
 }
 
@@ -43,6 +46,7 @@ func (e *PermanentError) Error() string { return e.Err.Error() }
 func (e *PermanentError) Unwrap() error { return e.Err }
 
 // Permanent wraps err so that Retry will not attempt further retries.
+// If err is nil, Permanent returns nil.
 func Permanent(err error) error {
 	if err == nil {
 		return nil
@@ -65,12 +69,12 @@ func Retry(ctx context.Context, cfg RetryConfig, fn func(context.Context) error)
 		// Stop on permanent error.
 		var pe *PermanentError
 		if errors.As(lastErr, &pe) {
-			return pe.Err
+			return fmt.Errorf("retry permanent after %d attempts: %w", attempt+1, pe.Err)
 		}
 
 		// Stop if error classified as non-retryable.
 		if cfg.IsRetryable != nil && !cfg.IsRetryable(lastErr) {
-			return lastErr
+			return fmt.Errorf("retry non-retryable after %d attempts: %w", attempt+1, lastErr)
 		}
 
 		// Don't sleep after the last attempt.
@@ -95,7 +99,7 @@ func Retry(ctx context.Context, cfg RetryConfig, fn func(context.Context) error)
 // Formula: min(initialDelay * multiplier^attempt, maxDelay), then full jitter.
 func backoffDelay(cfg RetryConfig, attempt int) time.Duration {
 	delayF := float64(cfg.InitialDelay) * math.Pow(cfg.Multiplier, float64(attempt))
-	if delayF > float64(cfg.MaxDelay) {
+	if delayF > float64(cfg.MaxDelay) || math.IsInf(delayF, 0) || math.IsNaN(delayF) {
 		delayF = float64(cfg.MaxDelay)
 	}
 	// Full jitter: uniform random in [0, delay).
