@@ -562,14 +562,23 @@ func (c *lruCache[K, V]) Get(key K) (V, bool) {
 		return zero, false
 	}
 	c.order.MoveToFront(elem)
-	return elem.Value.(*lruEntry[K, V]).value, true
+	entry, ok := elem.Value.(*lruEntry[K, V])
+	if !ok {
+		var zero V
+		return zero, false
+	}
+	return entry.value, true
 }
 
 // Put adds or updates a value, promoting it to the front. If the cache exceeds
 // maxSize, the least recently used entry is evicted.
 func (c *lruCache[K, V]) Put(key K, value V) {
 	if elem, ok := c.items[key]; ok {
-		elem.Value.(*lruEntry[K, V]).value = value
+		entry, ok := elem.Value.(*lruEntry[K, V])
+		if !ok {
+			return
+		}
+		entry.value = value
 		c.order.MoveToFront(elem)
 		return
 	}
@@ -582,7 +591,10 @@ func (c *lruCache[K, V]) Put(key K, value V) {
 		if back == nil {
 			break
 		}
-		evicted := c.order.Remove(back).(*lruEntry[K, V])
+		evicted, ok := c.order.Remove(back).(*lruEntry[K, V])
+		if !ok {
+			continue
+		}
 		delete(c.items, evicted.key)
 	}
 }
