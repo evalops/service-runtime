@@ -36,6 +36,7 @@ const (
 )
 
 var (
+	errPublisherNil          = errors.New("publisher_nil")
 	errNATSURLRequired       = errors.New("nats_url_required")
 	errStreamNameRequired    = errors.New("stream_name_required")
 	errSubjectPrefixRequired = errors.New("subject_prefix_required")
@@ -105,6 +106,7 @@ type Options struct {
 
 // ChangePublisher is implemented by types that can publish domain change events.
 type ChangePublisher interface {
+	Publish(ctx context.Context, change Change) error
 	PublishChange(ctx context.Context, change Change)
 }
 
@@ -192,32 +194,42 @@ func (publisher *Publisher) Close() {
 	}
 }
 
-// PublishChange encodes change as a CloudEvent and publishes it to the NATS stream.
-func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
+// Publish encodes change as a CloudEvent and publishes it to the NATS stream,
+// returning any error encountered.
+func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 	if publisher == nil || publisher.js == nil {
-		return
+		return errPublisherNil
 	}
 
 	subject := change.subject(publisher.subjectPrefix)
 	envelope, err := change.toCloudEvent(subject, publisher.source)
 	if err != nil {
-		publisher.loggerOrDefault().Error("failed to build change envelope", "error", err, "seq", change.Sequence)
-		return
+		return fmt.Errorf("build change envelope: %w", err)
 	}
 
 	message, err := marshalEnvelopeMessage(subject, envelope, normalizedWireFormat(publisher.wireFormat))
 	if err != nil {
-		publisher.loggerOrDefault().Error("failed to marshal change event", "error", err, "seq", change.Sequence)
-		return
+		return fmt.Errorf("marshal change event: %w", err)
 	}
 
 	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
-		publisher.loggerOrDefault().Error("failed to publish change event", "error", err, "seq", change.Sequence, "subject", subject)
-		return
+		return fmt.Errorf("publish change event: %w", err)
 	}
 
 	publisher.loggerOrDefault().Debug("published change event", "seq", change.Sequence, "subject", subject)
+	return nil
 }
+
+// PublishChange encodes change as a CloudEvent and publishes it to the NATS stream.
+// Errors are logged but not returned. Use Publish for error-aware callers.
+func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
+	if err := publisher.Publish(ctx, change); err != nil {
+		publisher.loggerOrDefault().Error("failed to publish change event", "error", err, "seq", change.Sequence)
+	}
+}
+
+// Publish is a no-op that always returns nil.
+func (NoopPublisher) Publish(context.Context, Change) error { return nil }
 
 // PublishChange discards the event.
 func (NoopPublisher) PublishChange(context.Context, Change) {}
