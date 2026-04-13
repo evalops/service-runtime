@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -484,6 +485,9 @@ func TestPublishReturnsErrorOnJetStreamFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+	if !strings.Contains(err.Error(), "nats unavailable") {
+		t.Fatalf("expected wrapped nats error, got %v", err)
+	}
 }
 
 func TestPublishReturnsErrorOnNilPublisher(t *testing.T) {
@@ -491,8 +495,8 @@ func TestPublishReturnsErrorOnNilPublisher(t *testing.T) {
 
 	var publisher *Publisher
 	err := publisher.Publish(context.Background(), Change{})
-	if !errors.Is(err, errPublisherNil) {
-		t.Fatalf("expected errPublisherNil, got %v", err)
+	if !errors.Is(err, ErrPublisherNil) {
+		t.Fatalf("expected ErrPublisherNil, got %v", err)
 	}
 }
 
@@ -557,7 +561,7 @@ func TestNoopPublisherPublishReturnsNil(t *testing.T) {
 func TestChangePublisherInterfaceAcceptsBothTypes(t *testing.T) {
 	t.Parallel()
 
-	// Compile-time verification that both types satisfy the updated interface.
+	// Compile-time verification that both types satisfy the interface.
 	var _ ChangePublisher = &Publisher{
 		js:            &fakeJetStream{},
 		subjectPrefix: "test",
