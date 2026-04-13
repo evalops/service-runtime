@@ -629,7 +629,10 @@ func (c *lruCache[K, V]) Range(fn func(K, V) bool) {
 	}
 	entries := make([]kv, 0, c.order.Len())
 	for elem := c.order.Front(); elem != nil; elem = elem.Next() {
-		entry := elem.Value.(*lruEntry[K, V])
+		entry, ok := elem.Value.(*lruEntry[K, V])
+		if !ok {
+			continue
+		}
 		entries = append(entries, kv{key: entry.key, value: entry.value})
 	}
 	for _, e := range entries {
