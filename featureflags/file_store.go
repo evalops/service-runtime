@@ -2,6 +2,7 @@ package featureflags
 
 import (
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"strings"
@@ -68,6 +69,27 @@ func NewFileStore(path string, opts Options) (*FileStore, error) {
 func (store *FileStore) Enabled(key string) bool {
 	flag, ok := store.Lookup(key)
 	return ok && flag.GetEnabled()
+}
+
+// EnabledFor reports whether the named flag is enabled for a specific subject.
+// When rollout_percent is unset, enabled flags default to full rollout.
+func (store *FileStore) EnabledFor(key string, subject string) bool {
+	flag, ok := store.Lookup(key)
+	if !ok || !flag.GetEnabled() {
+		return false
+	}
+
+	rolloutPercent := normalizeRolloutPercent(flag.GetRolloutPercent())
+	if rolloutPercent >= 100 {
+		return true
+	}
+
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return true
+	}
+
+	return rolloutBucket(key, subject) < rolloutPercent
 }
 
 // Lookup returns a cloned copy of the named flag when present.
@@ -191,4 +213,23 @@ func (store *FileStore) logWarn(msg string, args ...any) {
 	if store != nil && store.logger != nil {
 		store.logger.Warn(msg, args...)
 	}
+}
+
+func normalizeRolloutPercent(value uint32) uint32 {
+	switch {
+	case value == 0:
+		return 100
+	case value > 100:
+		return 100
+	default:
+		return value
+	}
+}
+
+func rolloutBucket(key string, subject string) uint32 {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(strings.TrimSpace(key)))
+	_, _ = hasher.Write([]byte{':'})
+	_, _ = hasher.Write([]byte(strings.TrimSpace(subject)))
+	return hasher.Sum32() % 100
 }
