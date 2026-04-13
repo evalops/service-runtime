@@ -95,7 +95,9 @@ func TestPublishChangeWrapsCloudEvent(t *testing.T) {
 	}
 
 	fake, ok := publisher.js.(*fakeJetStream)
-	if !ok { t.Fatal("unexpected type") }
+	if !ok {
+		t.Fatal("unexpected type")
+	}
 	publisher.PublishChange(context.Background(), change)
 
 	if fake.subject != "pipeline.changes.deal.create" {
@@ -152,7 +154,9 @@ func TestPublishChangeWrapsProtoEnvelopeWhenConfigured(t *testing.T) {
 	}
 
 	fake, ok := publisher.js.(*fakeJetStream)
-	if !ok { t.Fatal("unexpected type") }
+	if !ok {
+		t.Fatal("unexpected type")
+	}
 	publisher.PublishChange(context.Background(), change)
 
 	event, err := UnmarshalEnvelope(fake.payload)
@@ -205,7 +209,9 @@ func TestPublishChangeWrapsProtoHeadersWhenConfigured(t *testing.T) {
 	}
 
 	fake, ok := publisher.js.(*fakeJetStream)
-	if !ok { t.Fatal("unexpected type") }
+	if !ok {
+		t.Fatal("unexpected type")
+	}
 	publisher.PublishChange(context.Background(), change)
 
 	if got := fake.header.Get(headerSpecVersion); got != "1.0" {
@@ -424,6 +430,140 @@ func TestUnmarshalMessageRejectsNilMessage(t *testing.T) {
 	if _, err := UnmarshalMessage(nil); !errors.Is(err, errMessageNil) {
 		t.Fatalf("expected errMessageNil, got %v", err)
 	}
+}
+
+func TestPublishReturnsNilOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	publisher := &Publisher{
+		js:            &fakeJetStream{},
+		logger:        slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+	}
+
+	change := Change{
+		Sequence:      1,
+		TenantID:      "org-1",
+		AggregateType: "deal",
+		Operation:     "create",
+		RecordedAt:    time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	}
+
+	if err := publisher.Publish(context.Background(), change); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	fake, ok := publisher.js.(*fakeJetStream)
+	if !ok {
+		t.Fatalf("expected fakeJetStream, got %T", publisher.js)
+	}
+	if fake.subject != "pipeline.changes.deal.create" {
+		t.Fatalf("expected message to be published, got subject %q", fake.subject)
+	}
+}
+
+func TestPublishReturnsErrorOnJetStreamFailure(t *testing.T) {
+	t.Parallel()
+
+	publisher := &Publisher{
+		js:            &fakeJetStream{publishErr: errors.New("nats unavailable")},
+		logger:        slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+	}
+
+	err := publisher.Publish(context.Background(), Change{
+		Sequence:      7,
+		TenantID:      "org-1",
+		AggregateType: "deal",
+		Operation:     "update",
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestPublishReturnsErrorOnNilPublisher(t *testing.T) {
+	t.Parallel()
+
+	var publisher *Publisher
+	err := publisher.Publish(context.Background(), Change{})
+	if !errors.Is(err, errPublisherNil) {
+		t.Fatalf("expected errPublisherNil, got %v", err)
+	}
+}
+
+func TestPublishReturnsErrorOnMarshalFailure(t *testing.T) {
+	t.Parallel()
+
+	publisher := &Publisher{
+		js:            &fakeJetStream{},
+		logger:        slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+		wireFormat:    WireFormat("bogus"),
+	}
+
+	err := publisher.Publish(context.Background(), Change{
+		Sequence:      1,
+		TenantID:      "org-1",
+		AggregateType: "deal",
+		Operation:     "create",
+		RecordedAt:    time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	})
+	if err == nil {
+		t.Fatal("expected error from invalid wire format, got nil")
+	}
+}
+
+func TestPublishChangeStillLogsErrorsForBackwardCompat(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	publisher := &Publisher{
+		js:            &fakeJetStream{publishErr: errors.New("nats unavailable")},
+		logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+	}
+
+	// PublishChange does not return an error — it logs instead.
+	publisher.PublishChange(context.Background(), Change{
+		Sequence:      7,
+		TenantID:      "org-1",
+		AggregateType: "deal",
+		Operation:     "update",
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	})
+
+	if !bytes.Contains(logs.Bytes(), []byte("failed to publish change event")) {
+		t.Fatalf("expected publish error log, got %q", logs.String())
+	}
+}
+
+func TestNoopPublisherPublishReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	var noop NoopPublisher
+	if err := noop.Publish(context.Background(), Change{}); err != nil {
+		t.Fatalf("expected nil error from NoopPublisher.Publish, got %v", err)
+	}
+}
+
+func TestChangePublisherInterfaceAcceptsBothTypes(t *testing.T) {
+	t.Parallel()
+
+	// Compile-time verification that both types satisfy the updated interface.
+	var _ ChangePublisher = &Publisher{
+		js:            &fakeJetStream{},
+		subjectPrefix: "test",
+		source:        "test",
+	}
+	var _ ChangePublisher = NoopPublisher{}
 }
 
 func TestNewPayloadRejectsNilMessage(t *testing.T) {
