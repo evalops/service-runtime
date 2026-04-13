@@ -478,12 +478,11 @@ func (c *Client) evictIntrospection(bearerToken string) {
 	c.cacheLock.Unlock()
 }
 
+// pruneExpiredLocked removes expired introspection cache entries.
+// Must be called with c.cacheLock held.
 func (c *Client) pruneExpiredLocked(now time.Time) {
-	c.introspection.Range(func(bearerToken string, cached cachedIntrospection) bool {
-		if now.After(cached.expiresAt) {
-			c.introspection.Delete(bearerToken)
-		}
-		return true
+	c.introspection.DeleteFunc(func(_ string, cached cachedIntrospection) bool {
+		return now.After(cached.expiresAt)
 	})
 }
 
@@ -562,11 +561,7 @@ func (c *lruCache[K, V]) Get(key K) (V, bool) {
 		return zero, false
 	}
 	c.order.MoveToFront(elem)
-	entry, ok := elem.Value.(*lruEntry[K, V])
-	if !ok {
-		var zero V
-		return zero, false
-	}
+	entry := elem.Value.(*lruEntry[K, V]) // only Put inserts entries
 	return entry.value, true
 }
 
@@ -574,10 +569,7 @@ func (c *lruCache[K, V]) Get(key K) (V, bool) {
 // maxSize, the least recently used entry is evicted.
 func (c *lruCache[K, V]) Put(key K, value V) {
 	if elem, ok := c.items[key]; ok {
-		entry, ok := elem.Value.(*lruEntry[K, V])
-		if !ok {
-			return
-		}
+		entry := elem.Value.(*lruEntry[K, V]) // only Put inserts entries
 		entry.value = value
 		c.order.MoveToFront(elem)
 		return
@@ -586,16 +578,12 @@ func (c *lruCache[K, V]) Put(key K, value V) {
 	elem := c.order.PushFront(entry)
 	c.items[key] = elem
 
-	for c.order.Len() > c.maxSize {
+	if c.order.Len() > c.maxSize {
 		back := c.order.Back()
-		if back == nil {
-			break
+		if back != nil {
+			evicted := c.order.Remove(back).(*lruEntry[K, V]) // only Put inserts entries
+			delete(c.items, evicted.key)
 		}
-		evicted, ok := c.order.Remove(back).(*lruEntry[K, V])
-		if !ok {
-			continue
-		}
-		delete(c.items, evicted.key)
 	}
 }
 
@@ -619,25 +607,16 @@ func (c *lruCache[K, V]) MaxSize() int {
 	return c.maxSize
 }
 
-// Range iterates over all entries from most to least recently used.
-// If fn returns false, iteration stops. It is safe for fn to call Delete.
-func (c *lruCache[K, V]) Range(fn func(K, V) bool) {
-	// Collect keys first to allow safe deletion during iteration.
-	type kv struct {
-		key   K
-		value V
-	}
-	entries := make([]kv, 0, c.order.Len())
-	for elem := c.order.Front(); elem != nil; elem = elem.Next() {
-		entry, ok := elem.Value.(*lruEntry[K, V])
-		if !ok {
-			continue
-		}
-		entries = append(entries, kv{key: entry.key, value: entry.value})
-	}
-	for _, e := range entries {
-		if !fn(e.key, e.value) {
-			return
+// DeleteFunc removes all entries for which fn returns true.
+// It iterates the list directly without snapshotting.
+func (c *lruCache[K, V]) DeleteFunc(fn func(K, V) bool) {
+	var next *list.Element
+	for elem := c.order.Front(); elem != nil; elem = next {
+		next = elem.Next()
+		entry := elem.Value.(*lruEntry[K, V])
+		if fn(entry.key, entry.value) {
+			c.order.Remove(elem)
+			delete(c.items, entry.key)
 		}
 	}
 }
