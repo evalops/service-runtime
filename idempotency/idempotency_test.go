@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -284,8 +285,8 @@ func TestMiddlewareDoesNotCleanupOnEveryRequest(t *testing.T) {
 		}
 	}
 
-	if store.cleanupCount >= 5 {
-		t.Fatalf("expected fewer than 5 cleanup calls, got %d", store.cleanupCount)
+	if store.cleanupCount.Load() >= 5 {
+		t.Fatalf("expected fewer than 5 cleanup calls, got %d", store.cleanupCount.Load())
 	}
 }
 
@@ -310,8 +311,8 @@ func TestMiddlewareRunsCleanupAfterInterval(t *testing.T) {
 	request.Header.Set("Idempotency-Key", "key-1")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
-	if store.cleanupCount != 1 {
-		t.Fatalf("expected 1 cleanup after first request, got %d", store.cleanupCount)
+	if store.cleanupCount.Load() != 1 {
+		t.Fatalf("expected 1 cleanup after first request, got %d", store.cleanupCount.Load())
 	}
 
 	// Send second request at same time — should NOT trigger cleanup
@@ -320,8 +321,8 @@ func TestMiddlewareRunsCleanupAfterInterval(t *testing.T) {
 	request.Header.Set("Idempotency-Key", "key-2")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
-	if store.cleanupCount != 1 {
-		t.Fatalf("expected still 1 cleanup, got %d", store.cleanupCount)
+	if store.cleanupCount.Load() != 1 {
+		t.Fatalf("expected still 1 cleanup, got %d", store.cleanupCount.Load())
 	}
 
 	// Advance time past the interval
@@ -333,8 +334,8 @@ func TestMiddlewareRunsCleanupAfterInterval(t *testing.T) {
 	request.Header.Set("Idempotency-Key", "key-3")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
-	if store.cleanupCount != 2 {
-		t.Fatalf("expected 2 cleanups after interval, got %d", store.cleanupCount)
+	if store.cleanupCount.Load() != 2 {
+		t.Fatalf("expected 2 cleanups after interval, got %d", store.cleanupCount.Load())
 	}
 }
 
@@ -412,12 +413,13 @@ func (store *fakeStore) Complete(_ context.Context, scope, key string, result Re
 }
 
 type countingStore struct {
-	cleanupCount int
+	inner        Store
+	cleanupCount atomic.Int32
 	cleanupErr   error
 }
 
 func (store *countingStore) Cleanup(_ context.Context, _ time.Time) error {
-	store.cleanupCount++
+	store.cleanupCount.Add(1)
 	return store.cleanupErr
 }
 
