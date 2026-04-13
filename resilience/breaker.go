@@ -12,6 +12,7 @@ import (
 // BreakerState represents the current state of a circuit breaker.
 type BreakerState int
 
+// Circuit breaker states.
 const (
 	StateClosed   BreakerState = iota // normal operation
 	StateOpen                         // all calls rejected
