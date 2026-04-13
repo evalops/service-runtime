@@ -3,6 +3,7 @@ package resilience
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -89,6 +90,9 @@ func TestRetryStopsOnPermanentError(t *testing.T) {
 	if !errors.Is(err, inner) {
 		t.Fatalf("expected inner error to be unwrapped, got %v", err)
 	}
+	if !strings.Contains(err.Error(), "retry permanent after 1 attempts") {
+		t.Fatalf("expected wrapped permanent error message, got %v", err)
+	}
 	if attempts.Load() != 1 {
 		t.Fatalf("expected 1 attempt (permanent stops immediately), got %d", attempts.Load())
 	}
@@ -114,6 +118,9 @@ func TestRetryStopsWhenIsRetryableReturnsFalse(t *testing.T) {
 	}
 	if !errors.Is(err, notRetryable) {
 		t.Fatalf("expected notRetryable error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "retry non-retryable after 1 attempts") {
+		t.Fatalf("expected wrapped non-retryable error message, got %v", err)
 	}
 	if attempts.Load() != 1 {
 		t.Fatalf("expected 1 attempt (IsRetryable returned false), got %d", attempts.Load())
@@ -242,6 +249,14 @@ func TestRetryDefaultConfig(t *testing.T) {
 	// Default MaxAttempts is 3, so this should succeed on the 3rd try.
 	if attempts.Load() != 3 {
 		t.Fatalf("expected 3 attempts with default config, got %d", attempts.Load())
+	}
+}
+
+func TestPermanentNil(t *testing.T) {
+	t.Parallel()
+
+	if Permanent(nil) != nil {
+		t.Fatal("expected Permanent(nil) to return nil")
 	}
 }
 
