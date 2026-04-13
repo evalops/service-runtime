@@ -23,6 +23,7 @@ Current shared concerns:
 - atomic audit-entry and change-journal mutation recording
 - idempotent mutation middleware and Postgres-backed replay storage
 - NATS JetStream CloudEvents publishing primitives
+- lightweight feature-flag and dynamic config snapshot loading
 
 Current non-goals:
 
@@ -218,6 +219,22 @@ Helpers for shared HTTP request handling primitives without owning a service's
 route tree.
 
 Main entry points:
+
+### `featureflags`
+
+Helpers for reading the shared `config/v1.FeatureFlagSnapshot` protojson file
+that `deploy` mounts into workloads.
+
+Main entry points:
+
+- `featureflags.NewFileStore(path, opts)`
+- `(*featureflags.FileStore).Enabled(key)`
+- `(*featureflags.FileStore).Lookup(key)`
+- `(*featureflags.FileStore).Snapshot()`
+
+The file store keeps the last good snapshot in memory and lazily reloads on a
+poll interval, which is enough for ConfigMap-backed runtime toggles without
+forcing each service to hand-roll its own watcher logic.
 
 - `httpkit.WriteJSON(writer, status, value)`
 - `httpkit.WriteError(writer, status, code, message)`
