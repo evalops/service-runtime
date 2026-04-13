@@ -260,6 +260,111 @@ func TestPostgresStoreReplayConflictAndPending(t *testing.T) {
 	})
 }
 
+func TestMiddlewareDoesNotCleanupOnEveryRequest(t *testing.T) {
+	t.Parallel()
+
+	store := &countingStore{}
+	handler := MiddlewareWithOptions(store, Options{
+		TTL:             time.Hour,
+		CleanupInterval: time.Hour,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:             func() time.Time { return time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC) },
+	})(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusCreated)
+	}))
+
+	for i := range 5 {
+		recorder := httptest.NewRecorder()
+		request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+		request.Header.Set("Idempotency-Key", "key-"+strings.Repeat("x", i+1))
+		withAuthenticatedActor(handler).ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("request %d: expected status %d, got %d", i, http.StatusCreated, recorder.Code)
+		}
+	}
+
+	if store.cleanupCount >= 5 {
+		t.Fatalf("expected fewer than 5 cleanup calls, got %d", store.cleanupCount)
+	}
+}
+
+func TestMiddlewareRunsCleanupAfterInterval(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC)
+	store := &countingStore{}
+
+	handler := MiddlewareWithOptions(store, Options{
+		TTL:             time.Hour,
+		CleanupInterval: 50 * time.Millisecond,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:             func() time.Time { return now },
+	})(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusCreated)
+	}))
+
+	// Send first request — should trigger cleanup
+	recorder := httptest.NewRecorder()
+	request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request.Header.Set("Idempotency-Key", "key-1")
+	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
+
+	if store.cleanupCount != 1 {
+		t.Fatalf("expected 1 cleanup after first request, got %d", store.cleanupCount)
+	}
+
+	// Send second request at same time — should NOT trigger cleanup
+	recorder = httptest.NewRecorder()
+	request = requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request.Header.Set("Idempotency-Key", "key-2")
+	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
+
+	if store.cleanupCount != 1 {
+		t.Fatalf("expected still 1 cleanup, got %d", store.cleanupCount)
+	}
+
+	// Advance time past the interval
+	now = now.Add(100 * time.Millisecond)
+
+	// Send third request — should trigger cleanup
+	recorder = httptest.NewRecorder()
+	request = requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request.Header.Set("Idempotency-Key", "key-3")
+	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
+
+	if store.cleanupCount != 2 {
+		t.Fatalf("expected 2 cleanups after interval, got %d", store.cleanupCount)
+	}
+}
+
+func TestMiddlewareCleanupFailureDoesNotFailRequest(t *testing.T) {
+	t.Parallel()
+
+	store := &countingStore{cleanupErr: errors.New("database connection lost")}
+	var logs bytes.Buffer
+	handler := MiddlewareWithOptions(store, Options{
+		TTL:             time.Hour,
+		CleanupInterval: 0, // triggers every time
+		Logger:          slog.New(slog.NewTextHandler(&logs, nil)),
+		Now:             func() time.Time { return time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC) },
+	})(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusCreated)
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request.Header.Set("Idempotency-Key", "key-1")
+	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d — cleanup failure should not fail the request", http.StatusCreated, recorder.Code)
+	}
+	if !strings.Contains(logs.String(), "idempotency cleanup failed") {
+		t.Fatal("expected cleanup failure to be logged")
+	}
+}
+
 func requestWithActor(method, path, body string) *http.Request {
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer svc-token")
@@ -303,6 +408,24 @@ func (store *fakeStore) Begin(_ context.Context, scope, key, requestHash string,
 func (store *fakeStore) Complete(_ context.Context, scope, key string, result ReplayResult, _ time.Time) error {
 	store.scope = scope
 	store.completeResult = result
+	return nil
+}
+
+type countingStore struct {
+	cleanupCount int
+	cleanupErr   error
+}
+
+func (store *countingStore) Cleanup(_ context.Context, _ time.Time) error {
+	store.cleanupCount++
+	return store.cleanupErr
+}
+
+func (store *countingStore) Begin(_ context.Context, _, _, _ string, _ time.Duration, _ time.Time) (*ReplayResult, error) {
+	return nil, nil
+}
+
+func (store *countingStore) Complete(_ context.Context, _, _ string, _ ReplayResult, _ time.Time) error {
 	return nil
 }
 

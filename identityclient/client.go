@@ -2,13 +2,14 @@ package identityclient
 
 import (
 	"bytes"
+	"container/list"
 	"context"
 	"crypto/tls"
-	"math"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -31,6 +32,8 @@ var (
 	ErrServiceTokensNotConfigured = errors.New("identity_service_tokens_not_configured")
 )
 
+const defaultMaxCacheSize = 10000
+
 // Config holds the settings for constructing an identity client.
 type Config struct {
 	IntrospectURL    string
@@ -38,6 +41,7 @@ type Config struct {
 	BootstrapKey     string
 	RequestTimeout   time.Duration
 	CacheTTL         time.Duration
+	MaxCacheSize     int // max entries per cache (default: 10000)
 	HTTPClient       *http.Client
 }
 
@@ -140,10 +144,10 @@ type Client struct {
 	cacheTTL         time.Duration
 
 	cacheLock     sync.Mutex
-	introspection map[string]cachedIntrospection
+	introspection *lruCache[string, cachedIntrospection]
 
 	serviceTokenLock sync.Mutex
-	serviceTokens    map[serviceTokenCacheKey]cachedServiceToken
+	serviceTokens    *lruCache[serviceTokenCacheKey, cachedServiceToken]
 }
 
 // New creates a Client from the given Config.
@@ -152,6 +156,10 @@ func New(config Config) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	maxSize := config.MaxCacheSize
+	if maxSize <= 0 {
+		maxSize = defaultMaxCacheSize
+	}
 	return &Client{
 		httpClient:       httpClient,
 		introspectURL:    config.IntrospectURL,
@@ -159,8 +167,8 @@ func New(config Config) *Client {
 		bootstrapKey:     config.BootstrapKey,
 		requestTimeout:   config.RequestTimeout,
 		cacheTTL:         config.CacheTTL,
-		introspection:    make(map[string]cachedIntrospection),
-		serviceTokens:    make(map[serviceTokenCacheKey]cachedServiceToken),
+		introspection:    newLRUCache[string, cachedIntrospection](maxSize),
+		serviceTokens:    newLRUCache[serviceTokenCacheKey, cachedServiceToken](maxSize),
 	}
 }
 
@@ -362,7 +370,7 @@ func (c *Client) ResolveServiceToken(
 	}
 
 	c.serviceTokenLock.Lock()
-	cached, ok := c.serviceTokens[key]
+	cached, ok := c.serviceTokens.Get(key)
 	if ok && !cached.expiringSoon() {
 		c.serviceTokenLock.Unlock()
 		return cached.token, nil
@@ -379,10 +387,10 @@ func (c *Client) ResolveServiceToken(
 	}
 
 	c.serviceTokenLock.Lock()
-	c.serviceTokens[key] = cachedServiceToken{
+	c.serviceTokens.Put(key, cachedServiceToken{
 		token:     issued.GetToken(),
 		expiresAt: expiresAt,
-	}
+	})
 	c.serviceTokenLock.Unlock()
 
 	return issued.GetToken(), nil
@@ -434,12 +442,12 @@ func (c *Client) cachedIntrospection(bearerToken string) (*identityv1.Introspect
 	c.cacheLock.Lock()
 	defer c.cacheLock.Unlock()
 
-	cached, ok := c.introspection[bearerToken]
+	cached, ok := c.introspection.Get(bearerToken)
 	if !ok {
 		return nil, false
 	}
 	if time.Now().After(cached.expiresAt) {
-		delete(c.introspection, bearerToken)
+		c.introspection.Delete(bearerToken)
 		return nil, false
 	}
 	return cloneIntrospectionResult(cached.result), true
@@ -453,10 +461,10 @@ func (c *Client) storeIntrospection(bearerToken string, result *identityv1.Intro
 	now := time.Now()
 	c.cacheLock.Lock()
 	c.pruneExpiredLocked(now)
-	c.introspection[bearerToken] = cachedIntrospection{
+	c.introspection.Put(bearerToken, cachedIntrospection{
 		expiresAt: now.Add(c.cacheTTL),
 		result:    cloneIntrospectionResult(result),
-	}
+	})
 	c.cacheLock.Unlock()
 }
 
@@ -466,16 +474,17 @@ func (c *Client) evictIntrospection(bearerToken string) {
 	}
 
 	c.cacheLock.Lock()
-	delete(c.introspection, bearerToken)
+	c.introspection.Delete(bearerToken)
 	c.cacheLock.Unlock()
 }
 
 func (c *Client) pruneExpiredLocked(now time.Time) {
-	for bearerToken, cached := range c.introspection {
+	c.introspection.Range(func(bearerToken string, cached cachedIntrospection) bool {
 		if now.After(cached.expiresAt) {
-			delete(c.introspection, bearerToken)
+			c.introspection.Delete(bearerToken)
 		}
-	}
+		return true
+	})
 }
 
 func cacheScopesKey(scopes []string) string {
@@ -523,4 +532,97 @@ func clampToInt32(v int64) int32 {
 
 func (c cachedServiceToken) expiringSoon() bool {
 	return time.Now().Add(10 * time.Second).After(c.expiresAt)
+}
+
+// lruCache is a fixed-size LRU cache backed by container/list and a map.
+type lruCache[K comparable, V any] struct {
+	maxSize int
+	items   map[K]*list.Element
+	order   *list.List // front = most recently used, back = least recently used
+}
+
+type lruEntry[K comparable, V any] struct {
+	key   K
+	value V
+}
+
+func newLRUCache[K comparable, V any](maxSize int) *lruCache[K, V] {
+	return &lruCache[K, V]{
+		maxSize: maxSize,
+		items:   make(map[K]*list.Element),
+		order:   list.New(),
+	}
+}
+
+// Get retrieves a value and promotes it to the front (most recently used).
+func (c *lruCache[K, V]) Get(key K) (V, bool) {
+	elem, ok := c.items[key]
+	if !ok {
+		var zero V
+		return zero, false
+	}
+	c.order.MoveToFront(elem)
+	return elem.Value.(*lruEntry[K, V]).value, true
+}
+
+// Put adds or updates a value, promoting it to the front. If the cache exceeds
+// maxSize, the least recently used entry is evicted.
+func (c *lruCache[K, V]) Put(key K, value V) {
+	if elem, ok := c.items[key]; ok {
+		elem.Value.(*lruEntry[K, V]).value = value
+		c.order.MoveToFront(elem)
+		return
+	}
+	entry := &lruEntry[K, V]{key: key, value: value}
+	elem := c.order.PushFront(entry)
+	c.items[key] = elem
+
+	for c.order.Len() > c.maxSize {
+		back := c.order.Back()
+		if back == nil {
+			break
+		}
+		evicted := c.order.Remove(back).(*lruEntry[K, V])
+		delete(c.items, evicted.key)
+	}
+}
+
+// Delete removes a key from the cache.
+func (c *lruCache[K, V]) Delete(key K) {
+	elem, ok := c.items[key]
+	if !ok {
+		return
+	}
+	c.order.Remove(elem)
+	delete(c.items, key)
+}
+
+// Len returns the number of entries in the cache.
+func (c *lruCache[K, V]) Len() int {
+	return c.order.Len()
+}
+
+// MaxSize returns the configured maximum size of the cache.
+func (c *lruCache[K, V]) MaxSize() int {
+	return c.maxSize
+}
+
+// Range iterates over all entries from most to least recently used.
+// If fn returns false, iteration stops. It is safe for fn to call Delete.
+func (c *lruCache[K, V]) Range(fn func(K, V) bool) {
+	// Collect keys first to allow safe deletion during iteration.
+	type kv struct {
+		key   K
+		value V
+	}
+	entries := make([]kv, 0, c.order.Len())
+	for elem := c.order.Front(); elem != nil; elem = elem.Next() {
+		entry := elem.Value.(*lruEntry[K, V])
+		entries = append(entries, kv{key: entry.key, value: entry.value})
+	}
+	for _, e := range entries {
+		if !fn(e.key, e.value) {
+			return
+		}
+	}
 }
