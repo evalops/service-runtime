@@ -218,7 +218,9 @@ contract and does not need to hand-build an HTTP client first.
 Use `identityclient.New(...)` when a service also needs bootstrap-key-backed
 `IssueServiceToken(...)` / `ResolveServiceToken(...)`, org/service/scope-aware
 service token caching, or cached introspection fallback during transient
-Identity outages.
+Identity outages. Outbound requests automatically use an OpenTelemetry-aware
+transport so trace context is propagated to Identity when the caller has an
+active span.
 
 ### `agenthook`
 
@@ -361,13 +363,15 @@ generic health consumers do not inherit those dependencies by default.
 - `httpkit.WithRequestID(next)`
 - `httpkit.WithMaxBodySize(maxBytes)`
 - `httpkit.WithRequestLogging(logger)`
+- `httpkit.WithTelemetry(service)`
 - `httpkit.HealthHandler(service)`
 - `httpkit.ReadyHandler(ping)`
 - `httpkit.MetricsHandler()`
 
 Use this package when a service wants the shared JSON error shape, request ID
 behavior, health endpoints, and optimistic concurrency helpers without copying
-the same router utilities into every repo.
+the same router utilities into every repo. `WithTelemetry(service)` wraps a
+handler with `otelhttp` server spans using route-aware span names.
 
 ### `observability`
 
@@ -508,6 +512,7 @@ Main entry points:
 - `natsbus.NewPayload(message)`
 - `natsbus.UnmarshalPayload(payload, target)`
 - `natsbus.UnmarshalMessage(msg)`
+- `natsbus.ExtractContext(ctx, envelope)`
 - `natsbus.NoopPublisher`
 
 Use this package when a service wants the shared stream bootstrap and event
@@ -520,7 +525,10 @@ compatibility, and services can opt into protobuf transport bytes with
 NATS headers with protobuf body bytes). Consumers can use
 `natsbus.UnmarshalEnvelope(...)` for legacy envelope bytes or
 `natsbus.UnmarshalMessage(...)` to accept the new header/body format alongside
-older JSON/proto envelopes during rollout.
+older JSON/proto envelopes during rollout. All envelope variants now preserve
+`traceparent`, `tracestate`, and `baggage`, and consumers can call
+`natsbus.ExtractContext(...)` to continue the upstream trace when handling a
+message.
 ## Consumption
 
 Add the module to a consumer repo:

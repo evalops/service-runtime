@@ -15,6 +15,11 @@ import (
 	"connectrpc.com/connect"
 	"github.com/evalops/service-runtime/rterrors"
 	"github.com/evalops/service-runtime/testutil"
+	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	tracetest "go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestWriteMutationJSONSetsHeaders(t *testing.T) {
@@ -146,6 +151,51 @@ func TestWithRequestLogging(t *testing.T) {
 	}
 }
 
+func TestWithTelemetryStartsServerSpan(t *testing.T) {
+	recorder := installTelemetryTestTracerProvider(t)
+
+	var seen trace.SpanContext
+	handler := WithTelemetry("prompts")(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		seen = trace.SpanContextFromContext(request.Context())
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+
+	recorderHTTP := httptest.NewRecorder()
+	handler.ServeHTTP(recorderHTTP, httptest.NewRequest(http.MethodGet, "/prompts", nil))
+
+	if !seen.IsValid() {
+		t.Fatal("expected valid span context in handler")
+	}
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 ended span, got %d", len(spans))
+	}
+	if spans[0].Name() != "GET /prompts" {
+		t.Fatalf("span name = %q, want GET /prompts", spans[0].Name())
+	}
+}
+
+func TestWithTelemetryRenamesSpanAfterChiRouting(t *testing.T) {
+	recorder := installTelemetryTestTracerProvider(t)
+
+	router := chi.NewRouter()
+	router.Use(WithTelemetry("contacts"))
+	router.Get("/contacts/{contactID}", func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	})
+
+	recorderHTTP := httptest.NewRecorder()
+	router.ServeHTTP(recorderHTTP, httptest.NewRequest(http.MethodGet, "/contacts/abc-123", nil))
+
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 ended span, got %d", len(spans))
+	}
+	if spans[0].Name() != "GET /contacts/{contactID}" {
+		t.Fatalf("span name = %q, want GET /contacts/{contactID}", spans[0].Name())
+	}
+}
+
 func TestReadyHandler(t *testing.T) {
 	t.Parallel()
 
@@ -267,6 +317,22 @@ func assertErrorMessage(t *testing.T, raw []byte, expected string) {
 	if response.Error.Message != expected {
 		t.Fatalf("expected error message %q, got %q", expected, response.Error.Message)
 	}
+}
+
+func installTelemetryTestTracerProvider(t *testing.T) *tracetest.SpanRecorder {
+	t.Helper()
+
+	// Callers must remain sequential because this helper swaps the global tracer provider.
+	originalProvider := otel.GetTracerProvider()
+	recorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(tracerProvider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+
+	return recorder
 }
 
 type versionedValue struct {

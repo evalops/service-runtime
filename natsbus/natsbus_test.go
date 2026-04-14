@@ -12,6 +12,10 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -248,6 +252,136 @@ func TestPublishChangeWrapsProtoHeadersWhenConfigured(t *testing.T) {
 	}
 	if target.Value != "d-1" {
 		t.Fatalf("unexpected payload value %q", target.Value)
+	}
+}
+
+func TestPublishChangePropagatesTraceContext(t *testing.T) {
+	originalProvider := otel.GetTracerProvider()
+	originalPropagator := otel.GetTextMapPropagator()
+	tracerProvider := sdktrace.NewTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		otel.SetTextMapPropagator(originalPropagator)
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+
+	publisher := &Publisher{
+		js:            &fakeJetStream{},
+		logger:        slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+		wireFormat:    WireFormatProtoHeaders,
+	}
+
+	ctx, span := tracerProvider.Tracer("natsbus-test").Start(context.Background(), "root")
+	defer span.End()
+
+	change := Change{
+		Sequence:      42,
+		TenantID:      "org-123",
+		AggregateType: "deal",
+		Operation:     "create",
+		RecordedAt:    time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	}
+
+	fake, ok := publisher.js.(*fakeJetStream)
+	if !ok {
+		t.Fatal("unexpected type")
+	}
+	if err := publisher.Publish(ctx, change); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if got := fake.header.Get(headerTraceParent); got == "" {
+		t.Fatal("expected traceparent header")
+	}
+
+	event, err := UnmarshalMessage(&nats.Msg{
+		Subject: fake.subject,
+		Header:  fake.header,
+		Data:    fake.payload,
+	})
+	if err != nil {
+		t.Fatalf("unmarshal header envelope: %v", err)
+	}
+	if event.TraceParent == "" {
+		t.Fatal("expected envelope traceparent")
+	}
+	extracted := ExtractContext(context.Background(), event)
+	if got, want := trace.SpanContextFromContext(extracted).TraceID(), trace.SpanContextFromContext(ctx).TraceID(); got != want {
+		t.Fatalf("trace id = %s, want %s", got, want)
+	}
+}
+
+func TestInjectTraceContextFallbackIncludesTraceStateAndMasksFlags(t *testing.T) {
+	originalPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+	t.Cleanup(func() {
+		otel.SetTextMapPropagator(originalPropagator)
+	})
+
+	traceState, err := trace.ParseTraceState("vendor=value")
+	if err != nil {
+		t.Fatalf("parse tracestate: %v", err)
+	}
+
+	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff},
+		SpanID:     trace.SpanID{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef},
+		TraceFlags: trace.FlagsSampled | trace.FlagsRandom | trace.TraceFlags(0x04),
+		TraceState: traceState,
+	}))
+
+	envelope := injectTraceContext(ctx, Envelope{})
+	if got, want := envelope.TraceState, traceState.String(); got != want {
+		t.Fatalf("trace state = %q, want %q", got, want)
+	}
+	if got, want := envelope.TraceParent, "00-00112233445566778899aabbccddeeff-0123456789abcdef-03"; got != want {
+		t.Fatalf("traceparent = %q, want %q", got, want)
+	}
+}
+
+func TestExtractContextFallsBackToTraceParentWithoutGlobalPropagator(t *testing.T) {
+	originalPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+	t.Cleanup(func() {
+		otel.SetTextMapPropagator(originalPropagator)
+	})
+
+	traceState, err := trace.ParseTraceState("vendor=value")
+	if err != nil {
+		t.Fatalf("parse tracestate: %v", err)
+	}
+
+	parent := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff},
+		SpanID:     trace.SpanID{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef},
+		TraceFlags: trace.FlagsSampled | trace.FlagsRandom,
+		TraceState: traceState,
+	})
+
+	envelope := injectTraceContext(trace.ContextWithSpanContext(context.Background(), parent), Envelope{})
+	extracted := trace.SpanContextFromContext(ExtractContext(context.Background(), envelope))
+
+	if !extracted.IsValid() {
+		t.Fatal("expected extracted span context")
+	}
+	if !extracted.IsRemote() {
+		t.Fatal("expected remote span context")
+	}
+	if got, want := extracted.TraceID(), parent.TraceID(); got != want {
+		t.Fatalf("trace id = %s, want %s", got, want)
+	}
+	if got, want := extracted.SpanID(), parent.SpanID(); got != want {
+		t.Fatalf("span id = %s, want %s", got, want)
+	}
+	if got, want := extracted.TraceFlags(), parent.TraceFlags()&(trace.FlagsSampled|trace.FlagsRandom); got != want {
+		t.Fatalf("trace flags = %s, want %s", got, want)
+	}
+	if got, want := extracted.TraceState().String(), traceState.String(); got != want {
+		t.Fatalf("trace state = %q, want %q", got, want)
 	}
 }
 
