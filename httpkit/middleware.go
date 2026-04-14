@@ -67,9 +67,6 @@ func WithTelemetry(service string) func(http.Handler) http.Handler {
 	return otelhttp.NewMiddleware(service, otelhttp.WithSpanNameFormatter(func(_ string, request *http.Request) string {
 		route := RoutePattern(request)
 		if route == "" {
-			route = request.URL.Path
-		}
-		if route == "" {
 			route = "/"
 		}
 		return request.Method + " " + route
