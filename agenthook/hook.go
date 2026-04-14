@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// ToolUseEvent is the generic hook envelope used by Codex and Claude Code.
 type ToolUseEvent struct {
 	ToolName  string          `json:"tool_name"`
 	ToolInput json.RawMessage `json:"tool_input,omitempty"`
@@ -17,13 +16,11 @@ type ToolUseEvent struct {
 	Metadata  map[string]any  `json:"metadata,omitempty"`
 }
 
-// PermissionDecision is the hook response shape that blocks tool execution.
 type PermissionDecision struct {
 	PermissionDecision       string `json:"permissionDecision"`
 	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }
 
-// ParseToolUseEvent decodes the incoming PreToolUse payload.
 func ParseToolUseEvent(data []byte) (ToolUseEvent, error) {
 	var event ToolUseEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -98,13 +95,4 @@ func lookupString(values map[string]any, key string) string {
 	default:
 		return ""
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

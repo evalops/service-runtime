@@ -20,7 +20,6 @@ const (
 	defaultClientServerName  = ""
 )
 
-// Config controls the governance hook binary.
 type Config struct {
 	GovernanceURL        string
 	ApprovalsURL         string
@@ -35,15 +34,14 @@ type Config struct {
 	TLS                  mtls.ClientConfig
 }
 
-// LoadConfigFromEnv reads hook configuration from environment variables.
 func LoadConfigFromEnv() (Config, error) {
 	cfg := Config{
-		GovernanceURL:        trimEnv("EVALOPS_GOVERNANCE_URL"),
-		ApprovalsURL:         trimEnv("EVALOPS_APPROVALS_URL"),
+		GovernanceURL:        normalizeServiceURL(trimEnv("EVALOPS_GOVERNANCE_URL"), governanceServiceSuffixes),
+		ApprovalsURL:         normalizeServiceURL(trimEnv("EVALOPS_APPROVALS_URL"), approvalsServiceSuffixes),
 		AgentToken:           trimEnv("EVALOPS_AGENT_TOKEN"),
 		WorkspaceID:          trimEnv("EVALOPS_WORKSPACE_ID"),
 		AgentID:              trimEnv("EVALOPS_AGENT_ID"),
-		Surface:              envOrDefault("EVALOPS_SURFACE", defaultSurface),
+		Surface:              firstNonEmpty(trimEnv("EVALOPS_HOOK_SURFACE"), trimEnv("EVALOPS_SURFACE"), defaultSurface),
 		ApprovalTimeout:      envDuration("EVALOPS_APPROVAL_TIMEOUT", defaultApprovalTimeout),
 		ApprovalPollInterval: envDuration("EVALOPS_APPROVAL_POLL_INTERVAL", defaultPollInterval),
 		GovernanceTimeout:    envDuration("EVALOPS_GOVERNANCE_TIMEOUT", defaultGovernanceTimeout),
@@ -58,7 +56,6 @@ func LoadConfigFromEnv() (Config, error) {
 	return cfg, cfg.Validate()
 }
 
-// Validate reports missing or invalid configuration.
 func (cfg Config) Validate() error {
 	switch {
 	case strings.TrimSpace(cfg.GovernanceURL) == "":
@@ -77,9 +74,27 @@ func (cfg Config) Validate() error {
 	return nil
 }
 
-// HTTPClient builds the shared outbound HTTP client for governance and approvals.
 func (cfg Config) HTTPClient() (*http.Client, error) {
 	return mtls.BuildHTTPClient(cfg.TLS)
+}
+
+var governanceServiceSuffixes = []string{
+	"/governance.v1.GovernanceService/EvaluateAction",
+	"/governance.v1.GovernanceService",
+}
+
+var approvalsServiceSuffixes = []string{
+	"/approvals.v1.ApprovalService/RequestApproval",
+	"/approvals.v1.ApprovalService/GetApproval",
+	"/approvals.v1.ApprovalService",
+}
+
+func normalizeServiceURL(value string, suffixes []string) string {
+	normalized := strings.TrimSpace(value)
+	for _, suffix := range suffixes {
+		normalized = strings.TrimSuffix(normalized, suffix)
+	}
+	return strings.TrimRight(normalized, "/")
 }
 
 func envOrDefault(key, fallback string) string {
@@ -105,4 +120,13 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 
 func trimEnv(key string) string {
 	return strings.TrimSpace(os.Getenv(key))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

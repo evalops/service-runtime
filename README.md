@@ -25,6 +25,7 @@ Current shared concerns:
 - NATS JetStream CloudEvents publishing primitives
 - lightweight feature-flag and dynamic config snapshot loading
 - reusable test helpers for backed Postgres, HTTP handlers, and auth-shaped requests
+- `evalops-agent-hook` governance/approval gating for agent `PreToolUse` hooks
 
 Current non-goals:
 
@@ -234,8 +235,11 @@ Environment contract:
 - `EVALOPS_AGENT_TOKEN`
 - `EVALOPS_WORKSPACE_ID`
 - `EVALOPS_AGENT_ID`
-- `EVALOPS_SURFACE`
+- `EVALOPS_HOOK_SURFACE` or legacy `EVALOPS_SURFACE`
 - `EVALOPS_APPROVAL_TIMEOUT`
+- `EVALOPS_APPROVAL_POLL_INTERVAL`
+- `EVALOPS_GOVERNANCE_TIMEOUT`
+- `EVALOPS_APPROVALS_TIMEOUT`
 
 Optional shared mTLS client settings:
 
@@ -248,6 +252,17 @@ The `governance-check` command reads a PreToolUse JSON payload from stdin,
 calls governance for `ALLOW` / `DENY` / `REQUIRE_APPROVAL`, requests approval
 when needed, and prints the deny response shape expected by Codex and Claude
 Code when execution must be blocked.
+
+Both service URLs accept either the service base URL or a full ConnectRPC
+procedure URL; the hook normalizes either form before creating clients.
+
+`EVALOPS_AGENT_ID` falls back to the hook `session_id` when it is not set, and
+invalid hook/config/bootstrap states fail closed with the same deny payload the
+hook uses for policy blocks.
+
+The release workflow now attaches cross-compiled `evalops-agent-hook`
+archives for `darwin/linux` and `amd64/arm64` to GitHub Releases so Claude
+Code and Codex deployments can pull a pinned binary directly.
 
 Example Codex hook:
 

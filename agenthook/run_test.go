@@ -3,6 +3,7 @@ package agenthook
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,6 +89,7 @@ func TestGovernanceCheckDeniesOnGovernanceDecision(t *testing.T) {
 		Config: Config{
 			GovernanceURL:        "https://governance.example",
 			WorkspaceID:          "ws_123",
+			AgentID:              "agent_env",
 			ApprovalTimeout:      defaultApprovalTimeout,
 			ApprovalPollInterval: defaultPollInterval,
 			GovernanceTimeout:    defaultGovernanceTimeout,
@@ -171,6 +173,63 @@ func TestGovernanceCheckFailsClosedOnUnspecifiedDecision(t *testing.T) {
 	}
 }
 
+func TestGovernanceCheckFailsClosedOnInvalidPayload(t *testing.T) {
+	runner := &Runner{
+		Config: Config{
+			GovernanceURL:        "https://governance.example",
+			WorkspaceID:          "ws_123",
+			ApprovalTimeout:      defaultApprovalTimeout,
+			ApprovalPollInterval: defaultPollInterval,
+			GovernanceTimeout:    defaultGovernanceTimeout,
+			ApprovalsTimeout:     defaultApprovalsTimeout,
+		},
+		Governance: &stubGovernanceClient{},
+	}
+
+	decision, err := runner.GovernanceCheck(context.Background(), []byte(`{"tool_name":`))
+	if err != nil {
+		t.Fatalf("GovernanceCheck() error = %v", err)
+	}
+	if decision == nil || decision.PermissionDecision != "deny" {
+		t.Fatalf("expected deny decision, got %#v", decision)
+	}
+	if !strings.Contains(decision.PermissionDecisionReason, "decode_tool_use_payload") {
+		t.Fatalf("permissionDecisionReason = %q", decision.PermissionDecisionReason)
+	}
+}
+
+func TestGovernanceCheckRequiresAgentIdentity(t *testing.T) {
+	governance := &stubGovernanceClient{
+		response: &governancev1.EvaluateActionResponse{
+			Evaluation: &governancev1.ActionEvaluation{
+				Decision: governancev1.ActionDecision_ACTION_DECISION_ALLOW,
+			},
+		},
+	}
+	runner := &Runner{
+		Config: Config{
+			GovernanceURL:        "https://governance.example",
+			WorkspaceID:          "ws_123",
+			ApprovalTimeout:      defaultApprovalTimeout,
+			ApprovalPollInterval: defaultPollInterval,
+			GovernanceTimeout:    defaultGovernanceTimeout,
+			ApprovalsTimeout:     defaultApprovalsTimeout,
+		},
+		Governance: governance,
+	}
+
+	decision, err := runner.GovernanceCheck(context.Background(), []byte(`{"tool_name":"Bash","tool_input":{"command":"pwd"}}`))
+	if err != nil {
+		t.Fatalf("GovernanceCheck() error = %v", err)
+	}
+	if decision == nil || decision.PermissionDecision != "deny" {
+		t.Fatalf("expected deny decision, got %#v", decision)
+	}
+	if governance.lastRequest != nil {
+		t.Fatal("governance should not be called without an agent identity")
+	}
+}
+
 func TestGovernanceCheckApprovesAfterHumanApproval(t *testing.T) {
 	governance := &stubGovernanceClient{
 		response: &governancev1.EvaluateActionResponse{
@@ -233,6 +292,7 @@ func TestGovernanceCheckDeniesRejectedApproval(t *testing.T) {
 			GovernanceURL:        "https://governance.example",
 			ApprovalsURL:         "https://approvals.example",
 			WorkspaceID:          "ws_123",
+			AgentID:              "agent_env",
 			Surface:              "claude-code",
 			ApprovalTimeout:      defaultApprovalTimeout,
 			ApprovalPollInterval: 10 * time.Millisecond,

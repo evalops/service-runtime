@@ -17,18 +17,15 @@ import (
 	"github.com/evalops/proto/gen/go/governance/v1/governancev1connect"
 )
 
-// GovernanceClient is the subset of governance needed by the hook.
 type GovernanceClient interface {
 	EvaluateAction(context.Context, *connect.Request[governancev1.EvaluateActionRequest]) (*connect.Response[governancev1.EvaluateActionResponse], error)
 }
 
-// ApprovalClient is the subset of approvals needed by the hook.
 type ApprovalClient interface {
 	RequestApproval(context.Context, *connect.Request[approvalsv1.RequestApprovalRequest]) (*connect.Response[approvalsv1.RequestApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[approvalsv1.GetApprovalRequest]) (*connect.Response[approvalsv1.GetApprovalResponse], error)
 }
 
-// Runner executes governance checks for hook payloads.
 type Runner struct {
 	Config     Config
 	Governance GovernanceClient
@@ -36,7 +33,6 @@ type Runner struct {
 	Sleep      func(context.Context, time.Duration) error
 }
 
-// NewRunner builds a runner with Connect clients.
 func NewRunner(cfg Config) (*Runner, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -57,7 +53,6 @@ func NewRunner(cfg Config) (*Runner, error) {
 	return runner, nil
 }
 
-// Execute runs the CLI entrypoint and returns the process exit code.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) != 1 || args[0] != "governance-check" {
 		_, _ = fmt.Fprintln(stderr, "usage: evalops-agent-hook governance-check")
@@ -66,13 +61,11 @@ func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 
 	cfg, err := LoadConfigFromEnv()
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
+		return encodeDecision(stdout, stderr, denyDecision(fmt.Sprintf("hook configuration error: %v", err)))
 	}
 	runner, err := NewRunner(cfg)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
+		return encodeDecision(stdout, stderr, denyDecision(fmt.Sprintf("hook bootstrap failed: %v", err)))
 	}
 
 	payload, err := io.ReadAll(stdin)
@@ -83,23 +76,11 @@ func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 
 	decision, err := runner.GovernanceCheck(ctx, payload)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
+		return encodeDecision(stdout, stderr, denyDecision(err.Error()))
 	}
-	if decision == nil {
-		return 0
-	}
-
-	encoder := json.NewEncoder(stdout)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(decision); err != nil {
-		_, _ = fmt.Fprintln(stderr, fmt.Errorf("encode_hook_response: %w", err))
-		return 1
-	}
-	return 2
+	return encodeDecision(stdout, stderr, decision)
 }
 
-// GovernanceCheck evaluates the incoming tool use and optionally returns a deny response.
 func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*PermissionDecision, error) {
 	if runner == nil || runner.Governance == nil {
 		return nil, errors.New("governance client is required")
@@ -107,15 +88,18 @@ func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*Permi
 
 	event, err := ParseToolUseEvent(input)
 	if err != nil {
-		return nil, err
+		return denyDecision(err.Error()), nil
 	}
 
-	agentID := event.ResolvedAgentID(runner.Config.AgentID)
+	agentID := event.resolvedAgentID(runner.Config.AgentID)
+	if strings.TrimSpace(agentID) == "" {
+		return denyDecision("agent_id is required via EVALOPS_AGENT_ID or hook session_id"), nil
+	}
 	request := connect.NewRequest(&governancev1.EvaluateActionRequest{
 		WorkspaceId:   runner.Config.WorkspaceID,
 		AgentId:       agentID,
 		ActionType:    event.ToolName,
-		ActionPayload: event.ActionPayload(input),
+		ActionPayload: event.actionPayload(input),
 	})
 	runner.addAuthorization(request.Header())
 
@@ -157,11 +141,11 @@ func (runner *Runner) awaitApproval(
 	request := connect.NewRequest(&approvalsv1.RequestApprovalRequest{
 		WorkspaceId:   runner.Config.WorkspaceID,
 		AgentId:       agentID,
-		Surface:       event.Surface(runner.Config.Surface),
+		Surface:       event.surface(runner.Config.Surface),
 		ActionType:    event.ToolName,
-		ActionPayload: event.ActionPayload(rawInput),
+		ActionPayload: event.actionPayload(rawInput),
 		RiskLevel:     mapApprovalRisk(evaluation.GetRiskLevel()),
-		ContextJson:   event.ApprovalContextJSON(rawInput, evaluation.GetReasons(), evaluation.GetMatchedRules()),
+		ContextJson:   event.approvalContextJSON(rawInput, evaluation.GetReasons(), evaluation.GetMatchedRules()),
 	})
 	runner.addAuthorization(request.Header())
 
@@ -307,4 +291,17 @@ func mapApprovalRisk(level governancev1.RiskLevel) approvalsv1.RiskLevel {
 	default:
 		return approvalsv1.RiskLevel_RISK_LEVEL_UNSPECIFIED
 	}
+}
+
+func encodeDecision(stdout, stderr io.Writer, decision *PermissionDecision) int {
+	if decision == nil {
+		return 0
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(decision); err != nil {
+		_, _ = fmt.Fprintln(stderr, fmt.Errorf("encode_hook_response: %w", err))
+		return 1
+	}
+	return 2
 }
