@@ -1,7 +1,9 @@
 package agenthook
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -11,6 +13,38 @@ import (
 	approvalsv1 "github.com/evalops/proto/gen/go/approvals/v1"
 	governancev1 "github.com/evalops/proto/gen/go/governance/v1"
 )
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) {
+	return 0, errors.New("stdin exploded")
+}
+
+func TestExecuteFailsClosedOnStdinReadError(t *testing.T) {
+	t.Setenv("EVALOPS_GOVERNANCE_URL", "https://governance.example")
+	t.Setenv("EVALOPS_WORKSPACE_ID", "ws_123")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := Execute(context.Background(), []string{"governance-check"}, errReader{}, &stdout, &stderr)
+	if exitCode != 2 {
+		t.Fatalf("Execute() exit code = %d, want 2", exitCode)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+
+	var decision PermissionDecision
+	if err := json.Unmarshal(stdout.Bytes(), &decision); err != nil {
+		t.Fatalf("decode deny decision: %v", err)
+	}
+	if decision.PermissionDecision != "deny" {
+		t.Fatalf("permissionDecision = %q, want deny", decision.PermissionDecision)
+	}
+	if !strings.Contains(decision.PermissionDecisionReason, "read_stdin: stdin exploded") {
+		t.Fatalf("permissionDecisionReason = %q", decision.PermissionDecisionReason)
+	}
+}
 
 func TestGovernanceCheckAllowsAction(t *testing.T) {
 	governance := &stubGovernanceClient{

@@ -75,8 +75,7 @@ func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 
 	payload, err := io.ReadAll(stdin)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, fmt.Errorf("read_stdin: %w", err))
-		return 1
+		return encodeDecision(stdout, stderr, denyDecision(fmt.Sprintf("read_stdin: %v", err)))
 	}
 
 	decision, err := runner.GovernanceCheck(ctx, payload)
