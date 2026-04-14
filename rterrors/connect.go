@@ -40,6 +40,9 @@ func ToConnectError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if code := CodeOf(err); code != "" {
+		return connect.NewError(ConnectCode(err), err)
+	}
 	if code := connect.CodeOf(err); code != connect.CodeUnknown {
 		return err
 	}

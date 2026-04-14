@@ -120,6 +120,20 @@ func TestToConnectErrorPreservesExistingConnectErrors(t *testing.T) {
 	}
 }
 
+func TestToConnectErrorPrefersRuntimeCodeOverWrappedConnectError(t *testing.T) {
+	t.Parallel()
+
+	err := E(
+		CodeNotFound,
+		"load_policy",
+		"policy missing",
+		connect.NewError(connect.CodeUnavailable, errors.New("dial timeout")),
+	)
+	if got := connect.CodeOf(ToConnectError(err)); got != connect.CodeNotFound {
+		t.Fatalf("connect.CodeOf(ToConnectError(err)) = %v, want %v", got, connect.CodeNotFound)
+	}
+}
+
 func TestWriteError(t *testing.T) {
 	t.Parallel()
 
