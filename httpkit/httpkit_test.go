@@ -3,6 +3,7 @@ package httpkit
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/evalops/service-runtime/rterrors"
 	"github.com/evalops/service-runtime/testutil"
 )
 
@@ -193,6 +195,63 @@ func TestWriteStoreError(t *testing.T) {
 	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeNotFound)
 }
 
+func TestWriteStoreErrorPreservesDefaultMessage(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	WriteStoreError(recorder, errors.New("db down"), StoreErrors{})
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, recorder.Code)
+	}
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeInternal)
+	assertErrorMessage(t, recorder.Body.Bytes(), "db down")
+}
+
+func TestWriteMappedError(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	WriteMappedError(recorder, rterrors.E(rterrors.CodeRateLimited, "ingest", "too many requests", nil))
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, recorder.Code)
+	}
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), string(rterrors.CodeRateLimited))
+}
+
+func TestRecoverMiddleware(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	handler := RecoverMiddleware(logger)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("unexpected")
+	}))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panic", nil))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, recorder.Code)
+	}
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), string(rterrors.CodeInternal))
+	if !strings.Contains(output.String(), "http panic recovered") {
+		t.Fatalf("expected panic recovery log, got %q", output.String())
+	}
+}
+
+func assertErrorMessage(t *testing.T, raw []byte, expected string) {
+	t.Helper()
+
+	var response ErrorResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Error.Message != expected {
+		t.Fatalf("expected error message %q, got %q", expected, response.Error.Message)
+	}
+}
 type versionedValue struct {
 	Version int64 `json:"version"`
 }
