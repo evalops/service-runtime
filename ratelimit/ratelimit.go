@@ -186,9 +186,13 @@ func (l *Limiter) allowLocal(policy Policy, key string, now time.Time) (bool, ti
 
 	l.mu.Lock()
 	bucketEntry, ok := l.entries[bucketKey]
-	if !ok || bucketEntry.limiter.rate != policy.RequestsPerSecond || bucketEntry.limiter.burst != policy.Burst {
+	if !ok {
 		bucketEntry = &entry{limiter: newTokenBucket(policy.RequestsPerSecond, policy.Burst, now)}
 		l.entries[bucketKey] = bucketEntry
+	} else if bucketEntry.limiter.rate != policy.RequestsPerSecond || bucketEntry.limiter.burst != policy.Burst {
+		// Preserve the depleted bucket state when policies change so a caller
+		// cannot reset its allowance by toggling request-controlled attributes.
+		bucketEntry.limiter.ReconfigureAt(policy.RequestsPerSecond, policy.Burst, now)
 	}
 	bucketEntry.lastSeen = now
 	l.mu.Unlock()
@@ -340,11 +344,6 @@ func newTokenBucket(rate float64, burst int, now time.Time) *tokenBucket {
 	}
 }
 
-func (tb *tokenBucket) Allow() bool {
-	allowed, _ := tb.AllowAt(time.Now())
-	return allowed
-}
-
 func (tb *tokenBucket) AllowAt(now time.Time) (bool, time.Duration) {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
@@ -374,4 +373,26 @@ func (tb *tokenBucket) AllowAt(now time.Time) (bool, time.Duration) {
 		retryAfter = time.Millisecond
 	}
 	return false, retryAfter
+}
+
+func (tb *tokenBucket) ReconfigureAt(rate float64, burst int, now time.Time) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	if now.Before(tb.lastTime) {
+		now = tb.lastTime
+	}
+
+	elapsed := now.Sub(tb.lastTime).Seconds()
+	tb.tokens += elapsed * tb.rate
+	if tb.tokens > float64(tb.burst) {
+		tb.tokens = float64(tb.burst)
+	}
+
+	tb.lastTime = now
+	tb.rate = rate
+	tb.burst = burst
+	if tb.tokens > float64(tb.burst) {
+		tb.tokens = float64(tb.burst)
+	}
 }

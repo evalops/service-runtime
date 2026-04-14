@@ -185,6 +185,44 @@ func TestMiddlewareScopesBucketsPerRoute(t *testing.T) {
 	}
 }
 
+func TestPolicyChangesDoNotResetLocalBucket(t *testing.T) {
+	clock := &manualClock{now: time.Unix(1, 0)}
+	cfg := ratelimit.DefaultConfig()
+	cfg.Now = clock.Now
+	cfg.PolicyFunc = func(r *http.Request) ratelimit.Policy {
+		if r.Header.Get("X-Plan") == "priority" {
+			return ratelimit.Policy{Scope: "shared", RequestsPerSecond: 10, Burst: 10}
+		}
+		return ratelimit.Policy{Scope: "shared", RequestsPerSecond: 1, Burst: 1}
+	}
+
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	first.RemoteAddr = "10.0.0.1:12345"
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	second.RemoteAddr = "10.0.0.1:12345"
+	second.Header.Set("X-Plan", "priority")
+
+	firstResponse := httptest.NewRecorder()
+	handler.ServeHTTP(firstResponse, first)
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("first request should be allowed, got %d", firstResponse.Code)
+	}
+
+	secondResponse := httptest.NewRecorder()
+	handler.ServeHTTP(secondResponse, second)
+	if secondResponse.Code != http.StatusTooManyRequests {
+		t.Fatalf("policy change should not refill the bucket, got %d", secondResponse.Code)
+	}
+}
+
 func TestExemptPaths(t *testing.T) {
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1

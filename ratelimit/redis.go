@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -88,18 +87,7 @@ func (l *Limiter) allowRedis(ctx context.Context, policy Policy, key string, now
 }
 
 func (l *Limiter) entryTTL(policy Policy) time.Duration {
-	if l.cfg.MaxAge > 0 {
-		return l.cfg.MaxAge
-	}
-	if policy.RequestsPerSecond <= 0 {
-		return time.Minute
-	}
-
-	refill := time.Duration(math.Ceil((float64(policy.Burst) / policy.RequestsPerSecond) * float64(time.Second)))
-	if refill < time.Minute {
-		refill = time.Minute
-	}
-	return refill * 2
+	return l.cfg.MaxAge
 }
 
 func redisBucketKey(serviceName, scope, key string) string {
