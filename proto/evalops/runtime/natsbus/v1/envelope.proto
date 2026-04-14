@@ -16,4 +16,7 @@ message EventEnvelope {
   string data_content_type = 6;
   string tenant_id = 7;
   google.protobuf.Any data = 8;
+  string trace_parent = 9;
+  string trace_state = 10;
+  string baggage = 11;
 }

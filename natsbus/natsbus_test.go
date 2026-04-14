@@ -12,6 +12,10 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -248,6 +252,66 @@ func TestPublishChangeWrapsProtoHeadersWhenConfigured(t *testing.T) {
 	}
 	if target.Value != "d-1" {
 		t.Fatalf("unexpected payload value %q", target.Value)
+	}
+}
+
+func TestPublishChangePropagatesTraceContext(t *testing.T) {
+	originalProvider := otel.GetTracerProvider()
+	originalPropagator := otel.GetTextMapPropagator()
+	tracerProvider := sdktrace.NewTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		otel.SetTextMapPropagator(originalPropagator)
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+
+	publisher := &Publisher{
+		js:            &fakeJetStream{},
+		logger:        slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		subjectPrefix: "pipeline.changes",
+		source:        "pipeline",
+		wireFormat:    WireFormatProtoHeaders,
+	}
+
+	ctx, span := tracerProvider.Tracer("natsbus-test").Start(context.Background(), "root")
+	defer span.End()
+
+	change := Change{
+		Sequence:      42,
+		TenantID:      "org-123",
+		AggregateType: "deal",
+		Operation:     "create",
+		RecordedAt:    time.Date(2026, 4, 11, 18, 0, 0, 0, time.UTC),
+		Payload:       MustPayload(wrapperspb.String("d-1")),
+	}
+
+	fake, ok := publisher.js.(*fakeJetStream)
+	if !ok {
+		t.Fatal("unexpected type")
+	}
+	if err := publisher.Publish(ctx, change); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if got := fake.header.Get(headerTraceParent); got == "" {
+		t.Fatal("expected traceparent header")
+	}
+
+	event, err := UnmarshalMessage(&nats.Msg{
+		Subject: fake.subject,
+		Header:  fake.header,
+		Data:    fake.payload,
+	})
+	if err != nil {
+		t.Fatalf("unmarshal header envelope: %v", err)
+	}
+	if event.TraceParent == "" {
+		t.Fatal("expected envelope traceparent")
+	}
+	extracted := ExtractContext(context.Background(), event)
+	if got, want := trace.SpanContextFromContext(extracted).TraceID(), trace.SpanContextFromContext(ctx).TraceID(); got != want {
+		t.Fatalf("trace id = %s, want %s", got, want)
 	}
 }
 

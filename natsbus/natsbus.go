@@ -14,6 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -56,6 +59,9 @@ const (
 	headerTime            = "ce-time"
 	headerDataContentType = "content-type"
 	headerTenantID        = "ce-tenantid"
+	headerTraceParent     = "traceparent"
+	headerTraceState      = "tracestate"
+	headerBaggage         = "baggage"
 )
 
 // Change describes a domain event to be published on the NATS bus.
@@ -79,6 +85,9 @@ type CloudEvent struct {
 	Time            string          `json:"time"`
 	DataContentType string          `json:"datacontenttype"`
 	TenantID        string          `json:"tenant_id"`
+	TraceParent     string          `json:"traceparent,omitempty"`
+	TraceState      string          `json:"tracestate,omitempty"`
+	Baggage         string          `json:"baggage,omitempty"`
 	Data            json.RawMessage `json:"data"`
 }
 
@@ -91,6 +100,9 @@ type Envelope struct {
 	Time            time.Time
 	DataContentType string
 	TenantID        string
+	TraceParent     string
+	TraceState      string
+	Baggage         string
 	Payload         *anypb.Any
 	WireFormat      WireFormat
 }
@@ -206,6 +218,7 @@ func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 	if err != nil {
 		return fmt.Errorf("build change envelope: %w", err)
 	}
+	envelope = injectTraceContext(ctx, envelope)
 
 	message, err := marshalEnvelopeMessage(subject, envelope, normalizedWireFormat(publisher.wireFormat))
 	if err != nil {
@@ -384,6 +397,15 @@ func marshalEnvelopeProtoHeaders(subject string, envelope Envelope) (*nats.Msg, 
 	if envelope.TenantID != "" {
 		message.Header.Set(headerTenantID, envelope.TenantID)
 	}
+	if envelope.TraceParent != "" {
+		message.Header.Set(headerTraceParent, envelope.TraceParent)
+	}
+	if envelope.TraceState != "" {
+		message.Header.Set(headerTraceState, envelope.TraceState)
+	}
+	if envelope.Baggage != "" {
+		message.Header.Set(headerBaggage, envelope.Baggage)
+	}
 
 	dataContentType := strings.TrimSpace(envelope.DataContentType)
 	if dataContentType == "" {
@@ -416,6 +438,9 @@ func marshalEnvelopeJSON(envelope Envelope) ([]byte, error) {
 		Time:            envelope.Time.UTC().Format(time.RFC3339),
 		DataContentType: "application/json",
 		TenantID:        envelope.TenantID,
+		TraceParent:     envelope.TraceParent,
+		TraceState:      envelope.TraceState,
+		Baggage:         envelope.Baggage,
 		Data:            data,
 	})
 }
@@ -429,6 +454,9 @@ func marshalEnvelopeProto(envelope Envelope) ([]byte, error) {
 		Time:            timestamppb.New(envelope.Time.UTC()),
 		DataContentType: "application/protobuf",
 		TenantId:        envelope.TenantID,
+		TraceParent:     envelope.TraceParent,
+		TraceState:      envelope.TraceState,
+		Baggage:         envelope.Baggage,
 		Data:            envelope.Payload,
 	}
 	return proto.Marshal(message)
@@ -497,6 +525,9 @@ func unmarshalEnvelopeJSON(data []byte) (Envelope, error) {
 		Time:            recordedAt.UTC(),
 		DataContentType: event.DataContentType,
 		TenantID:        event.TenantID,
+		TraceParent:     event.TraceParent,
+		TraceState:      event.TraceState,
+		Baggage:         event.Baggage,
 		Payload:         payload,
 		WireFormat:      WireFormatJSON,
 	}, nil
@@ -519,6 +550,9 @@ func unmarshalEnvelopeProto(data []byte) (Envelope, error) {
 		Time:            recordedAt,
 		DataContentType: message.DataContentType,
 		TenantID:        message.TenantId,
+		TraceParent:     message.TraceParent,
+		TraceState:      message.TraceState,
+		Baggage:         message.Baggage,
 		Payload:         message.Data,
 		WireFormat:      WireFormatProto,
 	}, nil
@@ -547,6 +581,9 @@ func unmarshalEnvelopeProtoHeaders(message *nats.Msg) (Envelope, error) {
 		Time:            recordedAt,
 		DataContentType: strings.TrimSpace(message.Header.Get(headerDataContentType)),
 		TenantID:        strings.TrimSpace(message.Header.Get(headerTenantID)),
+		TraceParent:     strings.TrimSpace(message.Header.Get(headerTraceParent)),
+		TraceState:      strings.TrimSpace(message.Header.Get(headerTraceState)),
+		Baggage:         strings.TrimSpace(message.Header.Get(headerBaggage)),
 		Payload:         payload,
 		WireFormat:      WireFormatProtoHeaders,
 	}, nil
@@ -623,4 +660,42 @@ func hasCloudEventHeaders(header nats.Header) bool {
 		strings.TrimSpace(header.Get(headerID)) != "" &&
 		strings.TrimSpace(header.Get(headerType)) != "" &&
 		strings.TrimSpace(header.Get(headerSource)) != ""
+}
+
+// ExtractContext extracts OpenTelemetry trace context from an envelope.
+func ExtractContext(ctx context.Context, envelope Envelope) context.Context {
+	carrier := propagation.MapCarrier{}
+	if envelope.TraceParent != "" {
+		carrier.Set(headerTraceParent, envelope.TraceParent)
+	}
+	if envelope.TraceState != "" {
+		carrier.Set(headerTraceState, envelope.TraceState)
+	}
+	if envelope.Baggage != "" {
+		carrier.Set(headerBaggage, envelope.Baggage)
+	}
+	if len(carrier) == 0 {
+		return ctx
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, carrier)
+}
+
+func injectTraceContext(ctx context.Context, envelope Envelope) Envelope {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+
+	envelope.TraceParent = strings.TrimSpace(carrier.Get(headerTraceParent))
+	envelope.TraceState = strings.TrimSpace(carrier.Get(headerTraceState))
+	envelope.Baggage = strings.TrimSpace(carrier.Get(headerBaggage))
+
+	if envelope.TraceParent != "" {
+		return envelope
+	}
+
+	spanContext := trace.SpanContextFromContext(ctx)
+	if !spanContext.IsValid() {
+		return envelope
+	}
+	envelope.TraceParent = fmt.Sprintf("00-%s-%s-%02x", spanContext.TraceID(), spanContext.SpanID(), byte(spanContext.TraceFlags()))
+	return envelope
 }

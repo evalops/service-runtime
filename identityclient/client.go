@@ -18,6 +18,7 @@ import (
 
 	identityv1 "github.com/evalops/proto/gen/go/identity/v1"
 	"github.com/evalops/service-runtime/mtls"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -142,6 +143,7 @@ type Client struct {
 	bootstrapKey     string
 	requestTimeout   time.Duration
 	cacheTTL         time.Duration
+	usesMTLSCert     bool
 
 	cacheLock     sync.Mutex
 	introspection *lruCache[string, cachedIntrospection]
@@ -156,6 +158,8 @@ func New(config Config) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	usesMTLSCert := httpClientUsesMTLSCertificate(httpClient)
+	httpClient = tracedHTTPClient(httpClient)
 	maxSize := config.MaxCacheSize
 	if maxSize <= 0 {
 		maxSize = defaultMaxCacheSize
@@ -167,9 +171,23 @@ func New(config Config) *Client {
 		bootstrapKey:     config.BootstrapKey,
 		requestTimeout:   config.RequestTimeout,
 		cacheTTL:         config.CacheTTL,
+		usesMTLSCert:     usesMTLSCert,
 		introspection:    newLRUCache[string, cachedIntrospection](maxSize),
 		serviceTokens:    newLRUCache[serviceTokenCacheKey, cachedServiceToken](maxSize),
 	}
+}
+
+func tracedHTTPClient(client *http.Client) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	cloned := *client
+	baseTransport := cloned.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	cloned.Transport = otelhttp.NewTransport(baseTransport)
+	return &cloned
 }
 
 // NewClient creates a Client that introspects tokens at the given URL.
@@ -397,11 +415,14 @@ func (c *Client) ResolveServiceToken(
 }
 
 func (c *Client) usesMTLSClientCertificate() bool {
-	if c == nil || c.httpClient == nil {
+	return c != nil && c.usesMTLSCert
+}
+
+func httpClientUsesMTLSCertificate(client *http.Client) bool {
+	if client == nil {
 		return false
 	}
-
-	transport, ok := c.httpClient.Transport.(*http.Transport)
+	transport, ok := client.Transport.(*http.Transport)
 	if !ok || transport == nil {
 		return false
 	}

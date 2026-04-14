@@ -15,6 +15,9 @@ import (
 	identityv1 "github.com/evalops/proto/gen/go/identity/v1"
 	"github.com/evalops/service-runtime/mtls"
 	"github.com/evalops/service-runtime/testutil"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -28,8 +31,11 @@ func TestNewMTLSClientUsesDefaultHTTPClientWhenTLSIsUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new mtls client: %v", err)
 	}
-	if client.httpClient != http.DefaultClient {
-		t.Fatal("expected default client when tls is unset")
+	if client.httpClient == http.DefaultClient {
+		t.Fatal("expected traced client wrapper when tls is unset")
+	}
+	if client.httpClient.Transport == nil {
+		t.Fatal("expected traced transport when tls is unset")
 	}
 }
 
@@ -107,6 +113,37 @@ func TestIntrospectSuccess(t *testing.T) {
 	}
 	if result.RunID != "run_123" {
 		t.Fatalf("unexpected run id %q", result.RunID)
+	}
+}
+
+func TestIntrospectPropagatesTraceparentHeader(t *testing.T) {
+	originalProvider := otel.GetTracerProvider()
+	originalPropagator := otel.GetTextMapPropagator()
+	tracerProvider := sdktrace.NewTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		otel.SetTextMapPropagator(originalPropagator)
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+
+	server := testutil.NewTestServer(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("traceparent"); got == "" {
+			t.Fatal("expected traceparent header")
+		}
+		testutil.WriteJSON(t, writer, http.StatusOK, map[string]any{
+			"active":          true,
+			"organization_id": "org_123",
+		})
+	}))
+
+	client := NewClient(server.URL, time.Second, server.Client())
+	ctx, span := tracerProvider.Tracer("identityclient-test").Start(context.Background(), "root")
+	defer span.End()
+
+	if _, err := client.Introspect(ctx, "write-token"); err != nil {
+		t.Fatalf("introspect: %v", err)
 	}
 }
 

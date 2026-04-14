@@ -15,6 +15,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/evalops/service-runtime/rterrors"
 	"github.com/evalops/service-runtime/testutil"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	tracetest "go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestWriteMutationJSONSetsHeaders(t *testing.T) {
@@ -143,6 +147,37 @@ func TestWithRequestLogging(t *testing.T) {
 	}
 	if !strings.Contains(logLine, "status=202") {
 		t.Fatalf("expected status in log line, got %q", logLine)
+	}
+}
+
+func TestWithTelemetryStartsServerSpan(t *testing.T) {
+	originalProvider := otel.GetTracerProvider()
+	recorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(tracerProvider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+
+	var seen trace.SpanContext
+	handler := WithTelemetry("prompts")(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		seen = trace.SpanContextFromContext(request.Context())
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+
+	recorderHTTP := httptest.NewRecorder()
+	handler.ServeHTTP(recorderHTTP, httptest.NewRequest(http.MethodGet, "/prompts", nil))
+
+	if !seen.IsValid() {
+		t.Fatal("expected valid span context in handler")
+	}
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 ended span, got %d", len(spans))
+	}
+	if spans[0].Name() != "GET /prompts" {
+		t.Fatalf("span name = %q, want GET /prompts", spans[0].Name())
 	}
 }
 

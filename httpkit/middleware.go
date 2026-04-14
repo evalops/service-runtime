@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // WithRequestID is an HTTP middleware that ensures every request has an X-Request-Id header.
@@ -58,6 +59,22 @@ func WithRequestLogging(logger *slog.Logger) func(http.Handler) http.Handler {
 				"duration_ms", time.Since(start).Milliseconds(),
 			)
 		})
+	}
+}
+
+// WithTelemetry returns an HTTP middleware that creates OpenTelemetry server spans.
+func WithTelemetry(service string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return otelhttp.NewMiddleware(service, otelhttp.WithSpanNameFormatter(func(_ string, request *http.Request) string {
+			route := RoutePattern(request)
+			if route == "" {
+				route = request.URL.Path
+			}
+			if route == "" {
+				route = "/"
+			}
+			return request.Method + " " + route
+		}))(next)
 	}
 }
 
