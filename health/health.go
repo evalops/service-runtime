@@ -80,7 +80,7 @@ func (c *Checker) Check(ctx context.Context, timeout time.Duration) Report {
 	c.mu.RUnlock()
 
 	if len(snapshot) == 0 {
-		return Report{Healthy: true, Duration: ms(time.Since(start))}
+		return Report{Healthy: true, Checks: []Status{}, Duration: ms(time.Since(start))}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
