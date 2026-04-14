@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-set -e
 
-# Run lint on staged Go files only
+# Run lint and test on staged Go files only.
+# Stash unstaged changes so the checks run against exactly what will be committed.
 STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
 if [ -n "$STAGED" ]; then
-  STASHED=0
-  if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
-    git stash push --keep-index --include-untracked -q
-    STASHED=1
-    trap 'status=$?; if [ "$STASHED" -eq 1 ]; then git stash pop -q; fi; exit "$status"' EXIT
+  STASH_NAME="pre-commit-$(date +%s)"
+  git stash push -q --keep-index -m "$STASH_NAME"
+
+  RESULT=0
+  echo "Running golangci-lint on staged files..."
+  golangci-lint run --new-from-rev=HEAD ./... || RESULT=$?
+
+  if [ "$RESULT" -eq 0 ]; then
+    echo "Running go test..."
+    go test -race ./... || RESULT=$?
   fi
 
-  echo "Running golangci-lint on staged files..."
-  golangci-lint run --new-from-rev=HEAD ./...
-  echo "Running go test..."
-  go test -race ./...
+  git stash pop -q 2>/dev/null || true
+  exit $RESULT
 fi
