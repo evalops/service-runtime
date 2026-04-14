@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/evalops/service-runtime/rterrors"
 	"github.com/evalops/service-runtime/testutil"
 )
@@ -195,6 +196,21 @@ func TestWriteStoreError(t *testing.T) {
 	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeNotFound)
 }
 
+func TestWriteStoreErrorPrefersMappedRuntimeCodeOverWrappedConnectError(t *testing.T) {
+	t.Parallel()
+
+	notFound := errors.New("not_found")
+	err := connect.NewError(connect.CodeUnavailable, notFound)
+
+	recorder := httptest.NewRecorder()
+	WriteStoreError(recorder, err, StoreErrors{NotFound: notFound})
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, recorder.Code)
+	}
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeNotFound)
+}
+
 func TestWriteStoreErrorPreservesDefaultMessage(t *testing.T) {
 	t.Parallel()
 
@@ -252,6 +268,7 @@ func assertErrorMessage(t *testing.T, raw []byte, expected string) {
 		t.Fatalf("expected error message %q, got %q", expected, response.Error.Message)
 	}
 }
+
 type versionedValue struct {
 	Version int64 `json:"version"`
 }
