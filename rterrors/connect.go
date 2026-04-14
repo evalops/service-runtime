@@ -8,10 +8,6 @@ func ConnectCode(err error) connect.Code {
 		return connect.CodeUnknown
 	}
 
-	if code := connect.CodeOf(err); code != connect.CodeUnknown {
-		return code
-	}
-
 	switch CodeOf(err) {
 	case CodeInvalidInput, CodeInvalidJSON:
 		return connect.CodeInvalidArgument
@@ -29,17 +25,23 @@ func ConnectCode(err error) connect.Code {
 		return connect.CodeResourceExhausted
 	case CodeUnavailable:
 		return connect.CodeUnavailable
-	case CodeInternal, "":
-		return connect.CodeInternal
-	default:
+	case CodeInternal:
 		return connect.CodeInternal
 	}
+
+	if code := connect.CodeOf(err); code != connect.CodeUnknown {
+		return code
+	}
+	return connect.CodeInternal
 }
 
 // ToConnectError converts an error into a Connect error while preserving existing Connect errors.
 func ToConnectError(err error) error {
 	if err == nil {
 		return nil
+	}
+	if code := CodeOf(err); code != "" {
+		return connect.NewError(ConnectCode(err), err)
 	}
 	if code := connect.CodeOf(err); code != connect.CodeUnknown {
 		return err

@@ -55,12 +55,82 @@ func TestConnectCodeAndHTTPStatus(t *testing.T) {
 	}
 }
 
+func TestConnectCodePrefersRuntimeCodeOverWrappedConnectError(t *testing.T) {
+	t.Parallel()
+
+	err := E(
+		CodeNotFound,
+		"load_policy",
+		"policy missing",
+		connect.NewError(connect.CodeUnavailable, errors.New("dial timeout")),
+	)
+	if got := ConnectCode(err); got != connect.CodeNotFound {
+		t.Fatalf("ConnectCode() = %v, want %v", got, connect.CodeNotFound)
+	}
+	if got := HTTPStatus(err); got != http.StatusNotFound {
+		t.Fatalf("HTTPStatus() = %d, want %d", got, http.StatusNotFound)
+	}
+}
+
+func TestConnectCodePreservesStandaloneConnectError(t *testing.T) {
+	t.Parallel()
+
+	// Regression: before the fix the empty-string runtime code match
+	// swallowed all errors without a runtime Code and returned CodeInternal,
+	// making the connect.CodeOf fallback dead code.
+	tests := []struct {
+		name string
+		code connect.Code
+	}{
+		{"Unavailable", connect.CodeUnavailable},
+		{"Canceled", connect.CodeCanceled},
+		{"DataLoss", connect.CodeDataLoss},
+		{"Aborted", connect.CodeAborted},
+		{"DeadlineExceeded", connect.CodeDeadlineExceeded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := connect.NewError(tt.code, errors.New("connect error"))
+			if got := ConnectCode(err); got != tt.code {
+				t.Fatalf("ConnectCode(*connect.Error{%v}) = %v, want %v", tt.code, got, tt.code)
+			}
+		})
+	}
+}
+
+func TestConnectCodePlainErrorFallsToDefault(t *testing.T) {
+	t.Parallel()
+
+	// A plain error with no runtime Code and no *connect.Error wrapping
+	// must fall through the switch to the default CodeInternal return.
+	err := errors.New("something broke")
+	if got := ConnectCode(err); got != connect.CodeInternal {
+		t.Fatalf("ConnectCode(plain error) = %v, want %v", got, connect.CodeInternal)
+	}
+}
+
 func TestToConnectErrorPreservesExistingConnectErrors(t *testing.T) {
 	t.Parallel()
 
 	original := connect.NewError(connect.CodeUnavailable, errors.New("upstream unavailable"))
 	if got := ToConnectError(original); got != original {
 		t.Fatal("expected ToConnectError to preserve existing connect errors")
+	}
+}
+
+func TestToConnectErrorPrefersRuntimeCodeOverWrappedConnectError(t *testing.T) {
+	t.Parallel()
+
+	err := E(
+		CodeNotFound,
+		"load_policy",
+		"policy missing",
+		connect.NewError(connect.CodeUnavailable, errors.New("dial timeout")),
+	)
+	if got := connect.CodeOf(ToConnectError(err)); got != connect.CodeNotFound {
+		t.Fatalf("connect.CodeOf(ToConnectError(err)) = %v, want %v", got, connect.CodeNotFound)
 	}
 }
 
