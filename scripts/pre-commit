@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -e
+
+# Run lint on staged Go files only
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [ -n "$STAGED" ]; then
+  echo "Running golangci-lint on staged files..."
+  golangci-lint run --new-from-rev=HEAD ./...
+  echo "Running go test..."
+  go test -race ./...
+fi

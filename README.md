@@ -728,9 +728,47 @@ identityclient/ Shared Identity introspection client
 images/        Shared builder image definitions
 ```
 
-## Local Validation
+## Development
+
+### Prerequisites
+
+- Go (see `go.mod` for the required version)
+- [golangci-lint](https://golangci-lint.run/welcome/install/) v2+
+
+### Setup
+
+After cloning the repo, install the pre-commit hook:
 
 ```bash
-go test ./... -count=1
-go build ./...
+make install-hooks
 ```
+
+This copies `scripts/pre-commit` into `.git/hooks/` so that `golangci-lint`
+and `go test -race` run automatically on every commit that touches Go files.
+
+### Lint
+
+```bash
+make lint
+```
+
+Runs the full `golangci-lint` suite configured in `.golangci.yml`. The
+enabled linters catch type-assertion errors (`errcheck`), shadow variables
+(`govet`), dead code (`staticcheck`, `unused`), and security patterns
+(`gosec`), among others.
+
+### Test
+
+```bash
+make test
+```
+
+Runs all tests with the race detector enabled.
+
+### Adopting in other repos
+
+To bring the same lint and hook setup to another EvalOps service:
+
+1. Copy `.golangci.yml`, `Makefile`, and `scripts/pre-commit` from this repo.
+2. Run `make install-hooks`.
+3. Adjust linter settings in `.golangci.yml` if the service has different needs.
