@@ -3,6 +3,8 @@ package httpkit
 import (
 	"errors"
 	"net/http"
+
+	"github.com/evalops/service-runtime/rterrors"
 )
 
 // ErrorCodeInvalidJSON and related constants are standard error codes for HTTP error responses.
@@ -42,16 +44,21 @@ func WriteError(writer http.ResponseWriter, status int, code, message string) {
 	})
 }
 
+// WriteMappedError writes a structured error response using the shared runtime error mapping.
+func WriteMappedError(writer http.ResponseWriter, err error) {
+	rterrors.WriteError(writer, err)
+}
+
 // WriteStoreError maps a store error to an appropriate HTTP error response.
 func WriteStoreError(writer http.ResponseWriter, err error, storeErrors StoreErrors) {
 	switch {
 	case storeErrors.NotFound != nil && errors.Is(err, storeErrors.NotFound):
-		WriteError(writer, http.StatusNotFound, ErrorCodeNotFound, err.Error())
+		WriteMappedError(writer, rterrors.E(rterrors.CodeNotFound, "store.read", err.Error(), err))
 	case storeErrors.VersionConflict != nil && errors.Is(err, storeErrors.VersionConflict):
-		WriteError(writer, http.StatusPreconditionFailed, ErrorCodeVersionConflict, "resource version does not match If-Match")
+		WriteMappedError(writer, rterrors.E(rterrors.CodeVersionConflict, "store.write", "resource version does not match If-Match", err))
 	case storeErrors.Conflict != nil && errors.Is(err, storeErrors.Conflict):
-		WriteError(writer, http.StatusConflict, ErrorCodeConflict, err.Error())
+		WriteMappedError(writer, rterrors.E(rterrors.CodeConflict, "store.write", err.Error(), err))
 	default:
-		WriteError(writer, http.StatusInternalServerError, ErrorCodeInternal, err.Error())
+		WriteMappedError(writer, rterrors.Wrap(rterrors.CodeInternal, "store.write", err))
 	}
 }
