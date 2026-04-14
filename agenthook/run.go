@@ -91,7 +91,7 @@ func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*Permi
 		return denyDecision(err.Error()), nil
 	}
 
-	agentID := event.resolvedAgentID(runner.Config.AgentID)
+	agentID := event.ResolvedAgentID(runner.Config.AgentID)
 	if strings.TrimSpace(agentID) == "" {
 		return denyDecision("agent_id is required via EVALOPS_AGENT_ID or hook session_id"), nil
 	}
@@ -99,7 +99,7 @@ func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*Permi
 		WorkspaceId:   runner.Config.WorkspaceID,
 		AgentId:       agentID,
 		ActionType:    event.ToolName,
-		ActionPayload: event.actionPayload(input),
+		ActionPayload: event.ActionPayload(input),
 	})
 	runner.addAuthorization(request.Header())
 
@@ -141,11 +141,11 @@ func (runner *Runner) awaitApproval(
 	request := connect.NewRequest(&approvalsv1.RequestApprovalRequest{
 		WorkspaceId:   runner.Config.WorkspaceID,
 		AgentId:       agentID,
-		Surface:       event.surface(runner.Config.Surface),
+		Surface:       event.Surface(runner.Config.Surface),
 		ActionType:    event.ToolName,
-		ActionPayload: event.actionPayload(rawInput),
+		ActionPayload: event.ActionPayload(rawInput),
 		RiskLevel:     mapApprovalRisk(evaluation.GetRiskLevel()),
-		ContextJson:   event.approvalContextJSON(rawInput, evaluation.GetReasons(), evaluation.GetMatchedRules()),
+		ContextJson:   event.ApprovalContextJSON(rawInput, evaluation.GetReasons(), evaluation.GetMatchedRules()),
 	})
 	runner.addAuthorization(request.Header())
 

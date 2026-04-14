@@ -125,6 +125,7 @@ func TestGovernanceCheckFailsClosedOnGovernanceError(t *testing.T) {
 		Config: Config{
 			GovernanceURL:        "https://governance.example",
 			WorkspaceID:          "ws_123",
+			AgentID:              "agent_env",
 			ApprovalTimeout:      defaultApprovalTimeout,
 			ApprovalPollInterval: defaultPollInterval,
 			GovernanceTimeout:    defaultGovernanceTimeout,
@@ -147,6 +148,7 @@ func TestGovernanceCheckFailsClosedOnUnspecifiedDecision(t *testing.T) {
 		Config: Config{
 			GovernanceURL:        "https://governance.example",
 			WorkspaceID:          "ws_123",
+			AgentID:              "agent_env",
 			ApprovalTimeout:      defaultApprovalTimeout,
 			ApprovalPollInterval: defaultPollInterval,
 			GovernanceTimeout:    defaultGovernanceTimeout,
