@@ -35,7 +35,7 @@ func ParseToolUseEvent(data []byte) (ToolUseEvent, error) {
 	return event, nil
 }
 
-func (event ToolUseEvent) ActionPayload(raw []byte) []byte {
+func (event ToolUseEvent) actionPayload(raw []byte) []byte {
 	trimmed := bytes.TrimSpace(event.ToolInput)
 	if len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null")) {
 		return append([]byte(nil), trimmed...)
@@ -43,7 +43,7 @@ func (event ToolUseEvent) ActionPayload(raw []byte) []byte {
 	return bytes.TrimSpace(raw)
 }
 
-func (event ToolUseEvent) ResolvedAgentID(fallback string) string {
+func (event ToolUseEvent) resolvedAgentID(fallback string) string {
 	return firstNonEmpty(
 		event.AgentID,
 		lookupString(event.Context, "agent_id"),
@@ -55,7 +55,7 @@ func (event ToolUseEvent) ResolvedAgentID(fallback string) string {
 	)
 }
 
-func (event ToolUseEvent) Surface(fallback string) string {
+func (event ToolUseEvent) surface(fallback string) string {
 	return firstNonEmpty(
 		lookupString(event.Context, "surface"),
 		lookupString(event.Metadata, "surface"),
@@ -63,7 +63,7 @@ func (event ToolUseEvent) Surface(fallback string) string {
 	)
 }
 
-func (event ToolUseEvent) ApprovalContextJSON(raw []byte, reasons, matchedRules []string) string {
+func (event ToolUseEvent) approvalContextJSON(raw []byte, reasons, matchedRules []string) string {
 	payload := map[string]any{
 		"governance_reasons": reasons,
 		"hook_event":         json.RawMessage(raw),

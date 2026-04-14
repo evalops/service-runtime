@@ -110,12 +110,12 @@ func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*Permi
 		return nil, err
 	}
 
-	agentID := event.ResolvedAgentID(runner.Config.AgentID)
+	agentID := event.resolvedAgentID(runner.Config.AgentID)
 	request := connect.NewRequest(&governancev1.EvaluateActionRequest{
 		WorkspaceId:   runner.Config.WorkspaceID,
 		AgentId:       agentID,
 		ActionType:    event.ToolName,
-		ActionPayload: event.ActionPayload(input),
+		ActionPayload: event.actionPayload(input),
 	})
 	runner.addAuthorization(request.Header())
 
@@ -157,11 +157,11 @@ func (runner *Runner) awaitApproval(
 	request := connect.NewRequest(&approvalsv1.RequestApprovalRequest{
 		WorkspaceId:   runner.Config.WorkspaceID,
 		AgentId:       agentID,
-		Surface:       event.Surface(runner.Config.Surface),
+		Surface:       event.surface(runner.Config.Surface),
 		ActionType:    event.ToolName,
-		ActionPayload: event.ActionPayload(rawInput),
+		ActionPayload: event.actionPayload(rawInput),
 		RiskLevel:     mapApprovalRisk(evaluation.GetRiskLevel()),
-		ContextJson:   event.ApprovalContextJSON(rawInput, evaluation.GetReasons(), evaluation.GetMatchedRules()),
+		ContextJson:   event.approvalContextJSON(rawInput, evaluation.GetReasons(), evaluation.GetMatchedRules()),
 	})
 	runner.addAuthorization(request.Header())
 
