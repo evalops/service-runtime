@@ -10,10 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/evalops/service-runtime/health"
-	"github.com/nats-io/nats.go"
-	"github.com/redis/go-redis/v9"
 )
 
 func TestEmptyChecker(t *testing.T) {
@@ -153,6 +150,31 @@ func TestCachedCheckRefreshesExpiredReport(t *testing.T) {
 	}
 }
 
+func TestCachedCheckIgnoresRequestCancellation(t *testing.T) {
+	c := health.New()
+	c.Add("db", func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	report := c.CachedCheck(ctx, time.Second, time.Minute)
+	if !report.Healthy {
+		t.Fatalf("expected cached readiness to ignore request cancellation, got %+v", report)
+	}
+
+	cached := c.CachedCheck(context.Background(), time.Second, time.Minute)
+	if !cached.Healthy {
+		t.Fatalf("expected healthy cached report, got %+v", cached)
+	}
+}
+
 func TestReadyzHandlerUsesCachedDefaults(t *testing.T) {
 	c := health.New()
 	var calls atomic.Int32
@@ -205,40 +227,6 @@ func TestPostgresCheck(t *testing.T) {
 	check = health.PostgresCheck(&mockContextPinger{err: errors.New("db down")})
 	if err := check(context.Background()); err == nil {
 		t.Fatal("expected postgres check to report unhealthy dependency")
-	}
-}
-
-func TestRedisCheck(t *testing.T) {
-	server := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-	t.Cleanup(func() {
-		_ = client.Close()
-	})
-
-	check := health.RedisCheck(client)
-	if err := check(context.Background()); err != nil {
-		t.Fatalf("healthy redis ping returned error: %v", err)
-	}
-
-	server.Close()
-	if err := check(context.Background()); err == nil {
-		t.Fatal("expected redis check to report unhealthy dependency")
-	}
-}
-
-type mockNATSConn struct{ status nats.Status }
-
-func (m mockNATSConn) Status() nats.Status { return m.status }
-
-func TestNATSCheck(t *testing.T) {
-	check := health.NATSCheck(mockNATSConn{status: nats.CONNECTED})
-	if err := check(context.Background()); err != nil {
-		t.Fatalf("connected nats check returned error: %v", err)
-	}
-
-	check = health.NATSCheck(mockNATSConn{status: nats.CLOSED})
-	if err := check(context.Background()); err == nil {
-		t.Fatal("expected nats check to report closed connection")
 	}
 }
 

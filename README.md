@@ -250,8 +250,8 @@ Main entry points:
 - `(*health.Checker).CachedHandler(timeout, ttl)`
 - `(*health.Checker).ReadyzHandler()`
 - `health.PostgresCheck(db)`
-- `health.RedisCheck(client)`
-- `health.NATSCheck(conn)`
+- `redischeck.Check(client)`
+- `natscheck.Check(conn)`
 - `health.HTTPCheck(client, url)`
 - `health.PingCheck(pinger)`
 - `health.TCPCheck(addr)`
@@ -260,6 +260,8 @@ Use this package when a service needs `/readyz` to reflect real downstream
 dependency state instead of a hardcoded success response. The shared
 `ReadyzHandler` caches readiness reports for 5 seconds and uses a 2-second
 timeout per probe so Kubernetes does not hammer dependencies on every poll.
+Redis and NATS adapters live in `health/redischeck` and `health/natscheck` so
+generic health consumers do not inherit those dependencies by default.
 
 - `httpkit.WriteJSON(writer, status, value)`
 - `httpkit.WriteError(writer, status, code, message)`

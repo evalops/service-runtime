@@ -15,9 +15,6 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
-	"github.com/nats-io/nats.go"
-	"github.com/redis/go-redis/v9"
 )
 
 // Status is the result of a single dependency check.
@@ -133,7 +130,7 @@ func (c *Checker) CachedCheck(ctx context.Context, timeout time.Duration, ttl ti
 		return report
 	}
 
-	report := c.Check(ctx, timeout)
+	report := c.Check(detach(ctx), timeout)
 
 	c.mu.Lock()
 	c.cachedReport = report
@@ -183,14 +180,6 @@ type ContextPinger interface {
 	PingContext(ctx context.Context) error
 }
 
-type redisPinger interface {
-	Ping(ctx context.Context) *redis.StatusCmd
-}
-
-type natsStatusConn interface {
-	Status() nats.Status
-}
-
 // PingCheck returns a CheckFunc that pings the given dependency.
 func PingCheck(p Pinger) CheckFunc {
 	return func(ctx context.Context) error {
@@ -208,29 +197,6 @@ func PostgresCheck(p ContextPinger) CheckFunc {
 			return errors.New("postgres_not_configured")
 		}
 		return p.PingContext(ctx)
-	}
-}
-
-// RedisCheck returns a CheckFunc that pings a Redis-compatible dependency.
-func RedisCheck(client redisPinger) CheckFunc {
-	return func(ctx context.Context) error {
-		if client == nil {
-			return errors.New("redis_not_configured")
-		}
-		return client.Ping(ctx).Err()
-	}
-}
-
-// NATSCheck returns a CheckFunc that verifies a NATS connection is active.
-func NATSCheck(conn natsStatusConn) CheckFunc {
-	return func(context.Context) error {
-		if conn == nil {
-			return errors.New("nats_not_configured")
-		}
-		if status := conn.Status(); status != nats.CONNECTED {
-			return fmt.Errorf("nats_not_ready: %s", status.String())
-		}
-		return nil
 	}
 }
 
@@ -280,6 +246,13 @@ func TCPCheck(addr string) CheckFunc {
 
 func ms(d time.Duration) int64 {
 	return d.Milliseconds()
+}
+
+func detach(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func (c *Checker) cached(now time.Time) (Report, bool) {
