@@ -25,7 +25,7 @@ func ConnectCode(err error) connect.Code {
 		return connect.CodeResourceExhausted
 	case CodeUnavailable:
 		return connect.CodeUnavailable
-	case CodeInternal, "":
+	case CodeInternal:
 		return connect.CodeInternal
 	}
 

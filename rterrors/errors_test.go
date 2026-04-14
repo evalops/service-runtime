@@ -72,6 +72,18 @@ func TestConnectCodePrefersRuntimeCodeOverWrappedConnectError(t *testing.T) {
 	}
 }
 
+func TestConnectCodePreservesStandaloneConnectError(t *testing.T) {
+	t.Parallel()
+
+	err := connect.NewError(connect.CodeUnavailable, errors.New("dial timeout"))
+	if got := ConnectCode(err); got != connect.CodeUnavailable {
+		t.Fatalf("ConnectCode() = %v, want %v", got, connect.CodeUnavailable)
+	}
+	if got := HTTPStatus(err); got != http.StatusServiceUnavailable {
+		t.Fatalf("HTTPStatus() = %d, want %d", got, http.StatusServiceUnavailable)
+	}
+}
+
 func TestToConnectErrorPreservesExistingConnectErrors(t *testing.T) {
 	t.Parallel()
 
