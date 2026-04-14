@@ -93,15 +93,7 @@ func CallOp[T any](ctx context.Context, c *Client, op string, fn func(context.Co
 	start := time.Now()
 
 	if c.breaker != nil {
-		// Use the breaker Do path which handles state transitions.
-		var result T
-		err := c.breaker.Do(ctx, func(ctx context.Context) error {
-			v, e := fn(ctx)
-			if e == nil {
-				result = v
-			}
-			return e
-		})
+		result, err := resilience.DoValue(ctx, c.breaker, fn)
 		c.recordLatency(op, time.Since(start))
 		if err != nil {
 			c.recordError(op)

@@ -1,12 +1,13 @@
 // Package async provides fire-and-forget helpers for background work that
 // should not block the caller. It standardises the pattern used across
 // identity, chat, and agent-mcp: detach from the request context, clone
-// data to prevent races, and log failures at WARN level.
+// data to prevent races, warn on errors, and recover panics.
 package async
 
 import (
 	"context"
 	"log/slog"
+	"runtime/debug"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -17,7 +18,8 @@ type Task func(ctx context.Context) error
 
 // FireAndForget launches task in a background goroutine with a context
 // detached from the parent (via context.WithoutCancel). Errors are logged
-// at WARN level with the given operation name.
+// at WARN level and panics are recovered and logged at ERROR level with the
+// given operation name.
 //
 // Use this for best-effort side effects that the caller does not need to
 // wait for: audit delivery, usage metering, registry heartbeats, event
@@ -25,6 +27,11 @@ type Task func(ctx context.Context) error
 func FireAndForget(ctx context.Context, logger *slog.Logger, op string, task Task) {
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				logger.Error("background task panicked", "op", op, "panic", recovered, "stack", string(debug.Stack()))
+			}
+		}()
 		if err := task(bgCtx); err != nil {
 			logger.Warn("background task failed", "op", op, "error", err)
 		}

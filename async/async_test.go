@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/evalops/service-runtime/async"
 	approvalsv1 "github.com/evalops/proto/gen/go/approvals/v1"
+	"github.com/evalops/service-runtime/async"
 )
 
 func TestFireAndForgetRunsInBackground(t *testing.T) {
@@ -57,6 +57,27 @@ func TestFireAndForgetLogsErrorsWithoutPanicking(t *testing.T) {
 	})
 
 	waitFor(t, &called, "failing background task to complete")
+}
+
+func TestFireAndForgetRecoversPanics(t *testing.T) {
+	logs := make(chan slog.Record, 1)
+	logger := slog.New(recordingHandler{records: logs})
+
+	async.FireAndForget(context.Background(), logger, "test.panic", func(_ context.Context) error {
+		panic("simulated panic")
+	})
+
+	select {
+	case record := <-logs:
+		if record.Level != slog.LevelError {
+			t.Fatalf("log level = %s, want %s", record.Level, slog.LevelError)
+		}
+		if record.Message != "background task panicked" {
+			t.Fatalf("log message = %q, want %q", record.Message, "background task panicked")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for panic recovery log")
+	}
 }
 
 func TestCloneProtoPreventsMutationRace(t *testing.T) {
@@ -118,4 +139,25 @@ func waitFor(t *testing.T, flag *atomic.Bool, what string) {
 			time.Sleep(5 * time.Millisecond)
 		}
 	}
+}
+
+type recordingHandler struct {
+	records chan slog.Record
+}
+
+func (handler recordingHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (handler recordingHandler) Handle(_ context.Context, record slog.Record) error {
+	handler.records <- record.Clone()
+	return nil
+}
+
+func (handler recordingHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return handler
+}
+
+func (handler recordingHandler) WithGroup(string) slog.Handler {
+	return handler
 }
