@@ -91,18 +91,27 @@ func NewBreaker(cfg BreakerConfig) *Breaker {
 // open and the reset timeout has elapsed, this reports StateHalfOpen.
 func (b *Breaker) State() BreakerState {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.stateLocked()
+	state, from, to, changed := b.stateLocked()
+	cb := b.onStateChange
+	b.mu.Unlock()
+
+	if changed && cb != nil {
+		cb(from, to)
+	}
+	return state
 }
 
 // stateLocked returns the current state, promoting Open → HalfOpen when the
 // reset timeout has elapsed. Caller must hold b.mu.
-func (b *Breaker) stateLocked() BreakerState {
+func (b *Breaker) stateLocked() (state, from, to BreakerState, changed bool) {
 	if b.state == StateOpen && b.timeNow().Sub(b.openedAt) >= b.cfg.ResetTimeout {
+		from = StateOpen
+		to = StateHalfOpen
+		changed = true
 		b.state = StateHalfOpen
 		b.halfOpenCount = 0
 	}
-	return b.state
+	return b.state, from, to, changed
 }
 
 // Reset forces the breaker back to Closed, clearing all counters.
@@ -137,20 +146,40 @@ func (b *Breaker) Do(ctx context.Context, fn func(context.Context) error) error 
 // It returns wasProbe=true when the call is a half-open probe.
 func (b *Breaker) before() (wasProbe bool, err error) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	switch b.stateLocked() {
+	state, from, to, changed := b.stateLocked()
+	cb := b.onStateChange
+	switch state {
 	case StateClosed:
+		b.mu.Unlock()
+		if changed && cb != nil {
+			cb(from, to)
+		}
 		return false, nil
 	case StateOpen:
+		b.mu.Unlock()
+		if changed && cb != nil {
+			cb(from, to)
+		}
 		return false, ErrCircuitOpen
 	case StateHalfOpen:
 		if b.halfOpenCount >= b.cfg.HalfOpenMax {
+			b.mu.Unlock()
+			if changed && cb != nil {
+				cb(from, to)
+			}
 			return false, ErrCircuitOpen
 		}
 		b.halfOpenCount++
+		b.mu.Unlock()
+		if changed && cb != nil {
+			cb(from, to)
+		}
 		return true, nil
 	default:
+		b.mu.Unlock()
+		if changed && cb != nil {
+			cb(from, to)
+		}
 		return false, ErrCircuitOpen
 	}
 }
