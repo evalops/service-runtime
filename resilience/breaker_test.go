@@ -372,6 +372,49 @@ func TestBreakerOnStateChangeCallback(t *testing.T) {
 	}
 }
 
+func TestBreakerOnStateChangeCallbackIncludesHalfOpenTransition(t *testing.T) {
+	t.Parallel()
+
+	type transition struct {
+		from, to BreakerState
+	}
+	var mu sync.Mutex
+	var transitions []transition
+
+	now := time.Now()
+	b := NewBreaker(BreakerConfig{
+		FailureThreshold: 1,
+		ResetTimeout:     50 * time.Millisecond,
+		Clock:            func() time.Time { return now },
+		OnStateChange: func(from, to BreakerState) {
+			mu.Lock()
+			transitions = append(transitions, transition{from, to})
+			mu.Unlock()
+		},
+	})
+
+	_ = b.Do(context.Background(), func(context.Context) error {
+		return errors.New("fail")
+	})
+	now = now.Add(100 * time.Millisecond)
+
+	if got := b.State(); got != StateHalfOpen {
+		t.Fatalf("expected HalfOpen after reset timeout, got %v", got)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(transitions) != 2 {
+		t.Fatalf("expected 2 transitions, got %d: %v", len(transitions), transitions)
+	}
+	if transitions[0].from != StateClosed || transitions[0].to != StateOpen {
+		t.Fatalf("expected Closed->Open, got %v->%v", transitions[0].from, transitions[0].to)
+	}
+	if transitions[1].from != StateOpen || transitions[1].to != StateHalfOpen {
+		t.Fatalf("expected Open->HalfOpen, got %v->%v", transitions[1].from, transitions[1].to)
+	}
+}
+
 func TestDoValueBreaker(t *testing.T) {
 	t.Parallel()
 
