@@ -235,6 +235,25 @@ func TestRetryDelayDoesNotExceedMaxDelay(t *testing.T) {
 	}
 }
 
+func TestBackoffDelayReturnsZeroWhenJitterWindowTruncatesBelowOneNanosecond(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("backoffDelay should not panic for sub-nanosecond jitter windows: %v", recovered)
+		}
+	}()
+
+	delay := backoffDelay(RetryConfig{
+		InitialDelay: time.Nanosecond,
+		MaxDelay:     time.Second,
+		Multiplier:   0.5,
+	}, 2)
+	if delay != 0 {
+		t.Fatalf("expected zero delay when jitter window truncates below one nanosecond, got %v", delay)
+	}
+}
+
 func TestRetryDefaultConfig(t *testing.T) {
 	t.Parallel()
 
