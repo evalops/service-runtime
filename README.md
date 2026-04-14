@@ -404,6 +404,28 @@ default IP-based keys, route or scope partitioning, Redis-backed coordination
 across replicas, and service-scoped Prometheus counters instead of rebuilding
 those transport safeguards per repo.
 
+### `rterrors`
+
+Helpers for structured runtime errors, Connect/HTTP status mapping, and panic
+recovery middleware.
+
+Main entry points:
+
+- `rterrors.New(code, message)`
+- `rterrors.Wrap(code, op, err)`
+- `rterrors.E(code, op, message, err)`
+- `rterrors.CodeOf(err)`
+- `rterrors.MessageOf(err)`
+- `rterrors.HTTPStatus(err)`
+- `rterrors.ConnectCode(err)`
+- `rterrors.ToConnectError(err)`
+- `rterrors.WriteError(writer, err)`
+- `rterrors.RecoverMiddleware(logger)`
+
+Use this package when a service wants one shared error taxonomy and response
+mapping across plain HTTP handlers and Connect services while preserving
+wrapped causes and operation context for debugging.
+
 ### `natsbus`
 
 Helpers for publishing service change events to NATS JetStream with a shared
@@ -630,6 +652,7 @@ startup/       Retry primitives
 postgres/      database/sql PostgreSQL bootstrap
 redisutil/     Redis bootstrap
 ratelimit/     HTTP rate limiting middleware
+rterrors/      Structured error handling and recovery
 pgxpoolutil/   pgxpool bootstrap
 testutil/      shared HTTP/auth/Postgres test helpers
 mtls/          Shared mTLS client/server helpers
