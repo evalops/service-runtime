@@ -8,6 +8,7 @@ import (
 // Code identifies a stable runtime error category.
 type Code string
 
+// Error codes define the stable runtime categories exposed to callers.
 const (
 	CodeInvalidInput    Code = "invalid_input"
 	CodeInvalidJSON     Code = "invalid_json"
