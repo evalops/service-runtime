@@ -37,9 +37,9 @@ var ErrCircuitOpen = errors.New("circuit_open")
 
 // BreakerConfig tunes circuit breaker behaviour.
 type BreakerConfig struct {
-	FailureThreshold int                        // consecutive failures before opening (default: 5)
-	ResetTimeout     time.Duration              // time in open state before half-open probe (default: 30s)
-	HalfOpenMax      int                        // max concurrent probes in half-open (default: 1)
+	FailureThreshold int                         // consecutive failures before opening (default: 5)
+	ResetTimeout     time.Duration               // time in open state before half-open probe (default: 30s)
+	HalfOpenMax      int                         // max concurrent probes in half-open (default: 1)
 	OnStateChange    func(from, to BreakerState) // optional callback on state transitions
 	Clock            func() time.Time            // optional clock for testing (default: time.Now)
 }
@@ -150,38 +150,25 @@ func (b *Breaker) before() (wasProbe bool, err error) {
 	cb := b.onStateChange
 	switch state {
 	case StateClosed:
-		b.mu.Unlock()
-		if changed && cb != nil {
-			cb(from, to)
-		}
-		return false, nil
+		err = nil
 	case StateOpen:
-		b.mu.Unlock()
-		if changed && cb != nil {
-			cb(from, to)
-		}
-		return false, ErrCircuitOpen
+		err = ErrCircuitOpen
 	case StateHalfOpen:
 		if b.halfOpenCount >= b.cfg.HalfOpenMax {
-			b.mu.Unlock()
-			if changed && cb != nil {
-				cb(from, to)
-			}
-			return false, ErrCircuitOpen
+			err = ErrCircuitOpen
+			break
 		}
 		b.halfOpenCount++
-		b.mu.Unlock()
-		if changed && cb != nil {
-			cb(from, to)
-		}
-		return true, nil
+		wasProbe = true
+		err = nil
 	default:
-		b.mu.Unlock()
-		if changed && cb != nil {
-			cb(from, to)
-		}
-		return false, ErrCircuitOpen
+		err = ErrCircuitOpen
 	}
+	b.mu.Unlock()
+	if changed && cb != nil {
+		cb(from, to)
+	}
+	return wasProbe, err
 }
 
 // after records the outcome of a call and transitions state accordingly.

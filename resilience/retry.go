@@ -103,11 +103,12 @@ func backoffDelay(cfg RetryConfig, attempt int) time.Duration {
 		delayF = float64(cfg.MaxDelay)
 	}
 	// Full jitter: uniform random in [0, delay).
-	if delayF <= 0 {
+	maxJitter := int64(delayF)
+	if maxJitter <= 0 {
 		return 0
 	}
 	//nolint:gosec // Backoff jitter is non-cryptographic and only used to spread retries.
-	jittered := rand.Int64N(int64(delayF))
+	jittered := rand.Int64N(maxJitter)
 	return time.Duration(jittered)
 }
 
