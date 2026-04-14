@@ -696,6 +696,8 @@ func injectTraceContext(ctx context.Context, envelope Envelope) Envelope {
 	if !spanContext.IsValid() {
 		return envelope
 	}
-	envelope.TraceParent = fmt.Sprintf("00-%s-%s-%02x", spanContext.TraceID(), spanContext.SpanID(), byte(spanContext.TraceFlags()))
+	flags := spanContext.TraceFlags() & (trace.FlagsSampled | trace.FlagsRandom)
+	envelope.TraceState = strings.TrimSpace(spanContext.TraceState().String())
+	envelope.TraceParent = fmt.Sprintf("00-%s-%s-%02x", spanContext.TraceID(), spanContext.SpanID(), byte(flags))
 	return envelope
 }
