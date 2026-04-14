@@ -86,6 +86,20 @@ func TestWriteError(t *testing.T) {
 	}
 }
 
+func TestWriteErrorIgnoresNilError(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	WriteError(recorder, nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected untouched recorder status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("expected no response body for nil error, got %q", recorder.Body.String())
+	}
+}
+
 func TestRecoverMiddleware(t *testing.T) {
 	t.Parallel()
 

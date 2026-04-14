@@ -147,15 +147,7 @@ func (e *Error) message() string {
 			return message
 		}
 	}
-	if message := defaultMessage(e.Code); message != "" {
-		return message
-	}
-	if e.Err != nil {
-		if message := strings.TrimSpace(e.Err.Error()); message != "" {
-			return message
-		}
-	}
-	return defaultMessage(CodeInternal)
+	return defaultMessage(e.Code)
 }
 
 func defaultMessage(code Code) string {

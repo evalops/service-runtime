@@ -44,7 +44,7 @@ func HTTPStatus(err error) int {
 
 // WriteError writes the structured JSON representation of an error.
 func WriteError(writer http.ResponseWriter, err error) {
-	if writer == nil {
+	if writer == nil || err == nil {
 		return
 	}
 
