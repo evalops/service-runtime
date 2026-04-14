@@ -3,7 +3,6 @@ package httpkit
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/evalops/service-runtime/testutil"
 )
 
 func TestWriteMutationJSONSetsHeaders(t *testing.T) {
@@ -41,7 +42,7 @@ func TestDecodeJSONRejectsTrailingContent(t *testing.T) {
 		t.Fatal("expected decode failure")
 	}
 
-	assertErrorCode(t, recorder.Body.Bytes(), ErrorCodeInvalidJSON)
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeInvalidJSON)
 }
 
 func TestPathUUIDRejectsInvalidValue(t *testing.T) {
@@ -52,7 +53,7 @@ func TestPathUUIDRejectsInvalidValue(t *testing.T) {
 		t.Fatal("expected parse failure")
 	}
 
-	assertErrorCode(t, recorder.Body.Bytes(), "invalid_contactID")
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), "invalid_contactID")
 }
 
 func TestRequireIfMatchVersion(t *testing.T) {
@@ -64,7 +65,7 @@ func TestRequireIfMatchVersion(t *testing.T) {
 		if _, ok := RequireIfMatchVersion(recorder, request); ok {
 			t.Fatal("expected missing If-Match to fail")
 		}
-		assertErrorCode(t, recorder.Body.Bytes(), "missing_if_match")
+		testutil.AssertErrorCode(t, recorder.Body.Bytes(), "missing_if_match")
 	})
 
 	t.Run("valid header", func(t *testing.T) {
@@ -153,7 +154,7 @@ func TestReadyHandler(t *testing.T) {
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, recorder.Code)
 	}
-	assertErrorCode(t, recorder.Body.Bytes(), "not_ready")
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), "not_ready")
 }
 
 func TestCaptureResponseWriterReadFromCopiesWithoutRecursing(t *testing.T) {
@@ -189,19 +190,7 @@ func TestWriteStoreError(t *testing.T) {
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("expected status %d, got %d", http.StatusNotFound, recorder.Code)
 	}
-	assertErrorCode(t, recorder.Body.Bytes(), ErrorCodeNotFound)
-}
-
-func assertErrorCode(t *testing.T, raw []byte, expected string) {
-	t.Helper()
-
-	var response ErrorResponse
-	if err := json.Unmarshal(raw, &response); err != nil {
-		t.Fatalf("decode error response: %v", err)
-	}
-	if response.Error.Code != expected {
-		t.Fatalf("expected error code %q, got %q", expected, response.Error.Code)
-	}
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeNotFound)
 }
 
 type versionedValue struct {
