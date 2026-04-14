@@ -16,6 +16,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/evalops/service-runtime/authmw"
+	"github.com/evalops/service-runtime/testutil"
 )
 
 func TestRequestHash(t *testing.T) {
@@ -66,7 +67,7 @@ func TestMiddlewareMissingKey(t *testing.T) {
 	handler := Middleware(store, time.Hour)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next should not run")
 	}))
-	handler.ServeHTTP(recorder, requestWithActor(http.MethodPost, "/deals", `{"ok":true}`))
+	handler.ServeHTTP(recorder, testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`))
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
@@ -89,7 +90,7 @@ func TestMiddlewareReplay(t *testing.T) {
 		t.Fatal("next should not run on replay")
 	}))
 
-	request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request := testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 	request.Header.Set("Idempotency-Key", "idem-1")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -122,7 +123,7 @@ func TestMiddlewareConflictAndPending(t *testing.T) {
 				t.Fatal("next should not run")
 			}))
 
-			request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+			request := testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 			request.Header.Set("Idempotency-Key", "idem-1")
 			withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -153,7 +154,7 @@ func TestMiddlewareSuccessCompletesStoredResponse(t *testing.T) {
 	}))
 
 	recorder := httptest.NewRecorder()
-	request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request := testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 	request.Header.Set("Idempotency-Key", "idem-1")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -276,7 +277,7 @@ func TestMiddlewareDoesNotCleanupOnEveryRequest(t *testing.T) {
 
 	for i := range 5 {
 		recorder := httptest.NewRecorder()
-		request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+		request := testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 		request.Header.Set("Idempotency-Key", "key-"+strings.Repeat("x", i+1))
 		withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -307,7 +308,7 @@ func TestMiddlewareRunsCleanupAfterInterval(t *testing.T) {
 
 	// Send first request — should trigger cleanup
 	recorder := httptest.NewRecorder()
-	request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request := testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 	request.Header.Set("Idempotency-Key", "key-1")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -317,7 +318,7 @@ func TestMiddlewareRunsCleanupAfterInterval(t *testing.T) {
 
 	// Send second request at same time — should NOT trigger cleanup
 	recorder = httptest.NewRecorder()
-	request = requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request = testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 	request.Header.Set("Idempotency-Key", "key-2")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -330,7 +331,7 @@ func TestMiddlewareRunsCleanupAfterInterval(t *testing.T) {
 
 	// Send third request — should trigger cleanup
 	recorder = httptest.NewRecorder()
-	request = requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request = testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 	request.Header.Set("Idempotency-Key", "key-3")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -354,7 +355,7 @@ func TestMiddlewareCleanupFailureDoesNotFailRequest(t *testing.T) {
 	}))
 
 	recorder := httptest.NewRecorder()
-	request := requestWithActor(http.MethodPost, "/deals", `{"ok":true}`)
+	request := testutil.NewAuthenticatedRequest(t, http.MethodPost, "/deals", "org-123", "scope:write", `{"ok":true}`)
 	request.Header.Set("Idempotency-Key", "key-1")
 	withAuthenticatedActor(handler).ServeHTTP(recorder, request)
 
@@ -364,12 +365,6 @@ func TestMiddlewareCleanupFailureDoesNotFailRequest(t *testing.T) {
 	if !strings.Contains(logs.String(), "idempotency cleanup failed") {
 		t.Fatal("expected cleanup failure to be logged")
 	}
-}
-
-func requestWithActor(method, path, body string) *http.Request {
-	request := httptest.NewRequest(method, path, strings.NewReader(body))
-	request.Header.Set("Authorization", "Bearer svc-token")
-	return request
 }
 
 func withAuthenticatedActor(next http.Handler) http.Handler {

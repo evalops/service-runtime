@@ -24,6 +24,7 @@ Current shared concerns:
 - idempotent mutation middleware and Postgres-backed replay storage
 - NATS JetStream CloudEvents publishing primitives
 - lightweight feature-flag and dynamic config snapshot loading
+- reusable test helpers for backed Postgres, HTTP handlers, and auth-shaped requests
 
 Current non-goals:
 
@@ -152,6 +153,26 @@ pool, err := pgxpoolutil.Open(ctx, dsn, pgxpoolutil.Options{
 	},
 })
 ```
+
+### `testutil`
+
+Helpers for reducing repeated test setup across service repositories.
+
+Main entry points:
+
+- `testutil.Context(t)`
+- `testutil.NewTestDB(t, schemaSQL)`
+- `testutil.NewTestPGXPool(t, schemaSQL)`
+- `testutil.NewTestServer(t, handler)`
+- `testutil.NewTestToken(t, claims)`
+- `testutil.NewAuthenticatedRequest(t, method, target, orgID, scope, body...)`
+- `testutil.AssertJSONResponse(t, response, status, body)`
+- `testutil.AssertErrorCode(t, raw, expected)`
+
+`NewTestDB` and `NewTestPGXPool` create an isolated schema inside the database
+pointed to by `TEST_DATABASE_URL`, apply optional schema SQL, and drop the
+schema during test cleanup. That keeps backed integration tests hermetic
+without forcing each service to hand-roll its own schema lifecycle.
 
 ### `mtls`
 
@@ -560,6 +581,7 @@ startup/       Retry primitives
 postgres/      database/sql PostgreSQL bootstrap
 redisutil/     Redis bootstrap
 pgxpoolutil/   pgxpool bootstrap
+testutil/      shared HTTP/auth/Postgres test helpers
 mtls/          Shared mTLS client/server helpers
 identityclient/ Shared Identity introspection client
 images/        Shared builder image definitions
