@@ -254,7 +254,9 @@ func HTTPCheck(client *http.Client, url string) CheckFunc {
 		if err != nil {
 			return err
 		}
-		defer response.Body.Close()
+		defer func() {
+			_ = response.Body.Close()
+		}()
 		_, _ = io.Copy(io.Discard, response.Body)
 
 		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {

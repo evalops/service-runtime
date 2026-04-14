@@ -211,7 +211,9 @@ func TestPostgresCheck(t *testing.T) {
 func TestRedisCheck(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-	defer client.Close()
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
 
 	check := health.RedisCheck(client)
 	if err := check(context.Background()); err != nil {
