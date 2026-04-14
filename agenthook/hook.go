@@ -45,13 +45,13 @@ func (event ToolUseEvent) ActionPayload(raw []byte) []byte {
 
 func (event ToolUseEvent) ResolvedAgentID(fallback string) string {
 	return firstNonEmpty(
-		fallback,
 		event.AgentID,
 		lookupString(event.Context, "agent_id"),
 		lookupString(event.Metadata, "agent_id"),
 		event.SessionID,
 		lookupString(event.Context, "session_id"),
 		lookupString(event.Metadata, "session_id"),
+		fallback,
 	)
 }
 

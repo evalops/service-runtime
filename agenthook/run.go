@@ -132,8 +132,7 @@ func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*Permi
 	}
 
 	switch evaluation.GetDecision() {
-	case governancev1.ActionDecision_ACTION_DECISION_ALLOW,
-		governancev1.ActionDecision_ACTION_DECISION_UNSPECIFIED:
+	case governancev1.ActionDecision_ACTION_DECISION_ALLOW:
 		return nil, nil
 	case governancev1.ActionDecision_ACTION_DECISION_DENY:
 		return denyDecision(joinReasons(evaluation.GetReasons(), "governance denied this action")), nil

@@ -50,6 +50,39 @@ func TestGovernanceCheckAllowsAction(t *testing.T) {
 	}
 }
 
+func TestGovernanceCheckPrefersEventAgentIDOverFallback(t *testing.T) {
+	governance := &stubGovernanceClient{
+		response: &governancev1.EvaluateActionResponse{
+			Evaluation: &governancev1.ActionEvaluation{
+				Decision: governancev1.ActionDecision_ACTION_DECISION_ALLOW,
+			},
+		},
+	}
+	runner := &Runner{
+		Config: Config{
+			GovernanceURL:        "https://governance.example",
+			WorkspaceID:          "ws_123",
+			AgentID:              "agent_env",
+			ApprovalTimeout:      defaultApprovalTimeout,
+			ApprovalPollInterval: defaultPollInterval,
+			GovernanceTimeout:    defaultGovernanceTimeout,
+			ApprovalsTimeout:     defaultApprovalsTimeout,
+		},
+		Governance: governance,
+	}
+
+	decision, err := runner.GovernanceCheck(context.Background(), []byte(`{"tool_name":"Bash","tool_input":{"command":"pwd"},"agent_id":"agent_event","session_id":"sess_1"}`))
+	if err != nil {
+		t.Fatalf("GovernanceCheck() error = %v", err)
+	}
+	if decision != nil {
+		t.Fatalf("expected allow, got deny %#v", decision)
+	}
+	if governance.lastRequest.GetAgentId() != "agent_event" {
+		t.Fatalf("agent_id = %q, want agent_event", governance.lastRequest.GetAgentId())
+	}
+}
+
 func TestGovernanceCheckDeniesOnGovernanceDecision(t *testing.T) {
 	runner := &Runner{
 		Config: Config{
@@ -104,6 +137,37 @@ func TestGovernanceCheckFailsClosedOnGovernanceError(t *testing.T) {
 	}
 	if decision == nil || decision.PermissionDecision != "deny" {
 		t.Fatalf("expected fail-closed deny, got %#v", decision)
+	}
+}
+
+func TestGovernanceCheckFailsClosedOnUnspecifiedDecision(t *testing.T) {
+	runner := &Runner{
+		Config: Config{
+			GovernanceURL:        "https://governance.example",
+			WorkspaceID:          "ws_123",
+			ApprovalTimeout:      defaultApprovalTimeout,
+			ApprovalPollInterval: defaultPollInterval,
+			GovernanceTimeout:    defaultGovernanceTimeout,
+			ApprovalsTimeout:     defaultApprovalsTimeout,
+		},
+		Governance: &stubGovernanceClient{
+			response: &governancev1.EvaluateActionResponse{
+				Evaluation: &governancev1.ActionEvaluation{
+					Decision: governancev1.ActionDecision_ACTION_DECISION_UNSPECIFIED,
+				},
+			},
+		},
+	}
+
+	decision, err := runner.GovernanceCheck(context.Background(), []byte(`{"tool_name":"Edit","tool_input":{"path":"a.txt"}}`))
+	if err != nil {
+		t.Fatalf("GovernanceCheck() error = %v", err)
+	}
+	if decision == nil || decision.PermissionDecision != "deny" {
+		t.Fatalf("expected fail-closed deny, got %#v", decision)
+	}
+	if decision.PermissionDecisionReason != "governance returned an unknown decision" {
+		t.Fatalf("permissionDecisionReason = %q", decision.PermissionDecisionReason)
 	}
 }
 
