@@ -663,6 +663,10 @@ func hasCloudEventHeaders(header nats.Header) bool {
 }
 
 // ExtractContext extracts OpenTelemetry trace context from an envelope.
+// When the global OTel propagator is configured it handles extraction. When the
+// global propagator is a no-op (e.g. an empty composite), extraction falls back
+// to the W3C TraceContext propagator so that traceparent values injected by the
+// manual fallback in injectTraceContext are still honoured.
 func ExtractContext(ctx context.Context, envelope Envelope) context.Context {
 	carrier := propagation.MapCarrier{}
 	if envelope.TraceParent != "" {
@@ -677,11 +681,22 @@ func ExtractContext(ctx context.Context, envelope Envelope) context.Context {
 	if len(carrier) == 0 {
 		return ctx
 	}
+
 	ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
-	if envelope.TraceParent == "" {
+
+	// If the global propagator already produced a valid span context we are done.
+	if trace.SpanContextFromContext(ctx).IsValid() {
 		return ctx
 	}
-	return propagation.TraceContext{}.Extract(ctx, carrier)
+
+	// Fallback: parse traceparent directly via the W3C TraceContext propagator.
+	// This mirrors the manual traceparent construction in injectTraceContext and
+	// ensures round-trip fidelity when the global propagator is a no-op.
+	if envelope.TraceParent != "" {
+		return propagation.TraceContext{}.Extract(ctx, carrier)
+	}
+
+	return ctx
 }
 
 func injectTraceContext(ctx context.Context, envelope Envelope) Envelope {
