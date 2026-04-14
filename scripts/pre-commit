@@ -4,8 +4,25 @@
 # Stash unstaged changes so the checks run against exactly what will be committed.
 STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
 if [ -n "$STAGED" ]; then
-  STASH_NAME="pre-commit-$(date +%s)"
-  git stash push -q --keep-index -m "$STASH_NAME"
+  STASHED=0
+  STASH_REF=""
+  restore_stash() {
+    status=$?
+    trap - EXIT
+    if [ "$STASHED" -eq 1 ]; then
+      git stash pop -q "$STASH_REF" 2>/dev/null || true
+    fi
+    exit "$status"
+  }
+  trap 'restore_stash' EXIT
+
+  STASH_NAME="pre-commit-$(date +%s)-$$"
+  git stash push -q --keep-index --include-untracked -m "$STASH_NAME"
+  TOP_STASH=$(git stash list -1 --format='%gd %gs')
+  if printf '%s\n' "$TOP_STASH" | grep -Fq " $STASH_NAME"; then
+    STASH_REF=${TOP_STASH%% *}
+    STASHED=1
+  fi
 
   RESULT=0
   echo "Running golangci-lint on staged files..."
@@ -16,6 +33,5 @@ if [ -n "$STAGED" ]; then
     go test -race ./... || RESULT=$?
   fi
 
-  git stash pop -q 2>/dev/null || true
   exit $RESULT
 fi
