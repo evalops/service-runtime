@@ -2,7 +2,7 @@ package ratelimit
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -107,7 +107,7 @@ func redisBucketKey(serviceName, scope, key string) string {
 	if strings.TrimSpace(serviceName) == "" {
 		prefix = "shared"
 	}
-	sum := sha1.Sum([]byte(scope + "\n" + key))
+	sum := sha256.Sum256([]byte(scope + "\n" + key))
 	return "ratelimit:" + prefix + ":" + hex.EncodeToString(sum[:])
 }
 
