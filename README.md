@@ -311,6 +311,7 @@ Main entry points:
 - `observability.NewMetrics(serviceName, opts)`
 - `observability.RegisterDBStats(serviceName, statFunc, opts)`
 - `observability.RequestLoggingMiddleware(logger, metrics)`
+- `observability.NewBoundedLabel(name, values...)`
 - `observability.NewWideEvent(name, category, resourceType, action)`
 - `observability.SetWideEvent(request, event)`
 - `observability.AddWideEventAttributes(request, attributes)`
@@ -318,6 +319,15 @@ Main entry points:
 Use this package when a service wants the shared Prometheus metric names and
 per-request logging/metadata pattern without hard-coding those collectors in
 its API package.
+
+Metric label rules:
+
+- Labels MUST be bounded to a known, enumerable set such as method, status, action, or downstream name.
+- Labels MUST NOT contain tenant identifiers such as `workspace_id`, `org_id`, `user_id`, or `agent_id`.
+- Labels MUST NOT contain request identifiers such as `request_id`, `trace_id`, or `session_id`.
+- HTTP `route` labels MUST use templated route patterns such as `/agents/{agentID}`, not raw URL paths.
+- For per-tenant drill-down, use structured logging with `slog` or exemplars instead of metric labels.
+- When a label is finite but caller-controlled, clamp it with `observability.NewBoundedLabel(...).Value(...)` so unknown values collapse to `other`.
 
 ### `authmw`
 

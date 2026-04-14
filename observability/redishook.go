@@ -73,6 +73,8 @@ type redisCommandHook struct {
 
 var _ goredis.Hook = (*redisCommandHook)(nil)
 
+var redisCommandStatusLabel = NewBoundedLabel("status", "ok", "nil", "error")
+
 func (hook *redisCommandHook) DialHook(next goredis.DialHook) goredis.DialHook {
 	return next
 }
@@ -81,7 +83,11 @@ func (hook *redisCommandHook) ProcessHook(next goredis.ProcessHook) goredis.Proc
 	return func(ctx context.Context, cmd goredis.Cmder) error {
 		start := time.Now()
 		err := next(ctx, cmd)
-		hook.record(redisCommandName(cmd), redisCommandStatus(err), time.Since(start))
+		hook.record(
+			redisCommandName(cmd),
+			redisCommandStatusLabel.Value(redisCommandStatus(err)),
+			time.Since(start),
+		)
 		return err
 	}
 }
@@ -90,7 +96,11 @@ func (hook *redisCommandHook) ProcessPipelineHook(next goredis.ProcessPipelineHo
 	return func(ctx context.Context, cmds []goredis.Cmder) error {
 		start := time.Now()
 		err := next(ctx, cmds)
-		hook.record(redisPipelineName(cmds), redisCommandStatus(err), time.Since(start))
+		hook.record(
+			redisPipelineName(cmds),
+			redisCommandStatusLabel.Value(redisCommandStatus(err)),
+			time.Since(start),
+		)
 		return err
 	}
 }
