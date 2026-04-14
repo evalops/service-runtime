@@ -1,7 +1,9 @@
 package observability
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -110,6 +112,74 @@ func TestRegisterRedisPoolStatsRegistersCollectorsOnce(t *testing.T) {
 	}
 	if got := metricValue(metricFamilies, "pipeline_redis_pool_wait_duration_seconds_total"); got != 2 {
 		t.Fatalf("wait duration seconds = %v, want 2", got)
+	}
+}
+
+func TestNewRedisCommandHookRecordsCommandMetrics(t *testing.T) {
+	t.Parallel()
+
+	registry := prometheus.NewRegistry()
+	hook, err := NewRedisCommandHook("pipeline", RedisCommandMetricsOptions{
+		Registerer:      registry,
+		DurationBuckets: []float64{0.000001, 1},
+	})
+	if err != nil {
+		t.Fatalf("new redis command hook: %v", err)
+	}
+
+	cmd := goredis.NewStringCmd(context.Background(), "get", "contact:123")
+	if err := hook.ProcessHook(func(ctx context.Context, cmd goredis.Cmder) error {
+		return nil
+	})(context.Background(), cmd); err != nil {
+		t.Fatalf("process hook: %v", err)
+	}
+
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather redis command metrics: %v", err)
+	}
+
+	if got := metricValueWithLabels(metricFamilies, "pipeline_redis_commands_total", map[string]string{"command": "get", "status": "ok"}); got != 1 {
+		t.Fatalf("redis command counter = %v, want 1", got)
+	}
+	if got := histogramCountWithLabels(metricFamilies, "pipeline_redis_command_duration_seconds", map[string]string{"command": "get", "status": "ok"}); got != 1 {
+		t.Fatalf("redis command histogram count = %v, want 1", got)
+	}
+}
+
+func TestNewRedisCommandHookRecordsPipelineErrors(t *testing.T) {
+	t.Parallel()
+
+	registry := prometheus.NewRegistry()
+	hook, err := NewRedisCommandHook("pipeline", RedisCommandMetricsOptions{
+		Registerer:      registry,
+		DurationBuckets: []float64{0.000001, 1},
+	})
+	if err != nil {
+		t.Fatalf("new redis command hook: %v", err)
+	}
+
+	errBoom := errors.New("boom")
+	cmds := []goredis.Cmder{
+		goredis.NewStatusCmd(context.Background(), "hset", "proxy:abc", "active", 1),
+		goredis.NewStatusCmd(context.Background(), "expireat", "proxy:abc", "2026-01-01T00:00:00Z"),
+	}
+	if err := hook.ProcessPipelineHook(func(ctx context.Context, cmds []goredis.Cmder) error {
+		return errBoom
+	})(context.Background(), cmds); !errors.Is(err, errBoom) {
+		t.Fatalf("process pipeline hook error = %v, want %v", err, errBoom)
+	}
+
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather redis pipeline metrics: %v", err)
+	}
+
+	if got := metricValueWithLabels(metricFamilies, "pipeline_redis_commands_total", map[string]string{"command": "pipeline", "status": "error"}); got != 1 {
+		t.Fatalf("redis pipeline counter = %v, want 1", got)
+	}
+	if got := histogramCountWithLabels(metricFamilies, "pipeline_redis_command_duration_seconds", map[string]string{"command": "pipeline", "status": "error"}); got != 1 {
+		t.Fatalf("redis pipeline histogram count = %v, want 1", got)
 	}
 }
 
@@ -254,4 +324,54 @@ func metricValue(metricFamilies []*dto.MetricFamily, name string) float64 {
 		}
 	}
 	return 0
+}
+
+func metricValueWithLabels(metricFamilies []*dto.MetricFamily, name string, labels map[string]string) float64 {
+	for _, family := range metricFamilies {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.Metric {
+			if !metricHasLabels(metric, labels) {
+				continue
+			}
+			switch family.GetType() {
+			case dto.MetricType_COUNTER:
+				return metric.GetCounter().GetValue()
+			case dto.MetricType_GAUGE:
+				return metric.GetGauge().GetValue()
+			}
+		}
+	}
+	return 0
+}
+
+func histogramCountWithLabels(metricFamilies []*dto.MetricFamily, name string, labels map[string]string) uint64 {
+	for _, family := range metricFamilies {
+		if family.GetName() != name || family.GetType() != dto.MetricType_HISTOGRAM {
+			continue
+		}
+		for _, metric := range family.Metric {
+			if metricHasLabels(metric, labels) {
+				return metric.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return 0
+}
+
+func metricHasLabels(metric *dto.Metric, labels map[string]string) bool {
+	if len(labels) == 0 {
+		return true
+	}
+	values := make(map[string]string, len(metric.Label))
+	for _, label := range metric.Label {
+		values[label.GetName()] = label.GetValue()
+	}
+	for key, want := range labels {
+		if values[key] != want {
+			return false
+		}
+	}
+	return true
 }
