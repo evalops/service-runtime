@@ -359,6 +359,38 @@ func TestMiddlewareRecordsMetrics(t *testing.T) {
 	}
 }
 
+func TestMiddlewareRecordsMetricsForLeadingDigitServiceName(t *testing.T) {
+	registry := prometheus.NewPedanticRegistry()
+	cfg := ratelimit.DefaultConfig()
+	cfg.RequestsPerSecond = 1
+	cfg.Burst = 1
+	cfg.ServiceName = "3gate"
+	cfg.Registerer = registry
+
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	request.RemoteAddr = "10.0.0.1:12345"
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	if value := metricValueWithLabels(metricFamilies, "service_3gate_rate_limit_hits_total", map[string]string{
+		"route":  "/v1/test",
+		"action": "allowed",
+	}); value != 1 {
+		t.Fatalf("allowed metric = %v, want 1", value)
+	}
+}
+
 func TestAllowContextPropagatesRedisError(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{

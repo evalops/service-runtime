@@ -59,14 +59,11 @@ func metricPrefix(serviceName string) string {
 	}
 
 	var builder strings.Builder
-	for index, runeValue := range serviceName {
+	for _, runeValue := range serviceName {
 		switch {
 		case unicode.IsLetter(runeValue), unicode.IsDigit(runeValue):
 			builder.WriteRune(unicode.ToLower(runeValue))
 		default:
-			builder.WriteByte('_')
-		}
-		if index == 0 && unicode.IsDigit(runeValue) {
 			builder.WriteByte('_')
 		}
 	}
