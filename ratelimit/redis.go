@@ -59,7 +59,7 @@ func (l *Limiter) allowRedis(ctx context.Context, policy Policy, key string, now
 		now.UnixMilli(),
 		policy.RequestsPerSecond,
 		policy.Burst,
-		l.entryTTL(policy).Milliseconds(),
+		l.entryTTL().Milliseconds(),
 	).Result()
 	if err != nil {
 		return false, 0, fmt.Errorf("redis_ratelimit: %w", err)
@@ -86,7 +86,7 @@ func (l *Limiter) allowRedis(ctx context.Context, policy Policy, key string, now
 	return allowed == 1, retryAfter, nil
 }
 
-func (l *Limiter) entryTTL(policy Policy) time.Duration {
+func (l *Limiter) entryTTL() time.Duration {
 	return l.cfg.MaxAge
 }
 
