@@ -8,6 +8,9 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -37,10 +40,20 @@ type namedCheck struct {
 	fn   CheckFunc
 }
 
+const (
+	// DefaultTimeout keeps readiness probes from hanging on a slow dependency.
+	DefaultTimeout = 2 * time.Second
+	// DefaultCacheTTL avoids hammering dependencies on every /readyz probe.
+	DefaultCacheTTL = 5 * time.Second
+)
+
 // Checker holds a set of named health checks and runs them on demand.
 type Checker struct {
-	mu     sync.RWMutex
-	checks []namedCheck
+	mu           sync.RWMutex
+	cacheMu      sync.Mutex
+	checks       []namedCheck
+	cachedReport Report
+	cacheUntil   time.Time
 }
 
 // New creates an empty Checker.
@@ -53,6 +66,8 @@ func (c *Checker) Add(name string, fn CheckFunc) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.checks = append(c.checks, namedCheck{name: name, fn: fn})
+	c.cachedReport = Report{}
+	c.cacheUntil = time.Time{}
 }
 
 // Check runs all registered checks concurrently with the given timeout.
@@ -80,23 +95,49 @@ func (c *Checker) Check(ctx context.Context, timeout time.Duration) Report {
 			defer wg.Done()
 			t := time.Now()
 			err := chk.fn(ctx)
-			s := Status{Name: chk.name, Healthy: err == nil, Latency: ms(time.Since(t))}
+			status := Status{Name: chk.name, Healthy: err == nil, Latency: ms(time.Since(t))}
 			if err != nil {
-				s.Error = err.Error()
+				status.Error = err.Error()
 			}
-			results[i] = s
+			results[i] = status
 		}(i, chk)
 	}
 	wg.Wait()
 
 	healthy := true
-	for _, s := range results {
-		if !s.Healthy {
+	for _, status := range results {
+		if !status.Healthy {
 			healthy = false
 			break
 		}
 	}
 	return Report{Healthy: healthy, Checks: results, Duration: ms(time.Since(start))}
+}
+
+// CachedCheck reuses a recent readiness report for the given TTL.
+func (c *Checker) CachedCheck(ctx context.Context, timeout time.Duration, ttl time.Duration) Report {
+	if ttl <= 0 {
+		return c.Check(ctx, timeout)
+	}
+	if report, ok := c.cached(time.Now()); ok {
+		return report
+	}
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	if report, ok := c.cached(time.Now()); ok {
+		return report
+	}
+
+	report := c.Check(detach(ctx), timeout)
+
+	c.mu.Lock()
+	c.cachedReport = report
+	c.cacheUntil = time.Now().Add(ttl)
+	c.mu.Unlock()
+
+	return report
 }
 
 // Handler returns an http.HandlerFunc that runs checks and writes a JSON report.
@@ -112,15 +153,82 @@ func (c *Checker) Handler(timeout time.Duration) http.HandlerFunc {
 	}
 }
 
-// Pinger is implemented by *pgxpool.Pool, *redis.Client, etc.
+// CachedHandler returns a readiness handler that reuses recent reports for ttl.
+func (c *Checker) CachedHandler(timeout time.Duration, ttl time.Duration) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		report := c.CachedCheck(r.Context(), timeout, ttl)
+		w.Header().Set("Content-Type", "application/json")
+		if !report.Healthy {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		_ = json.NewEncoder(w).Encode(report)
+	}
+}
+
+// ReadyzHandler returns the shared cached readiness handler.
+func (c *Checker) ReadyzHandler() http.HandlerFunc {
+	return c.CachedHandler(DefaultTimeout, DefaultCacheTTL)
+}
+
+// Pinger is implemented by dependencies that expose Ping(ctx) error.
 type Pinger interface {
 	Ping(ctx context.Context) error
+}
+
+// ContextPinger is implemented by *sql.DB and *pgxpool.Pool.
+type ContextPinger interface {
+	PingContext(ctx context.Context) error
 }
 
 // PingCheck returns a CheckFunc that pings the given dependency.
 func PingCheck(p Pinger) CheckFunc {
 	return func(ctx context.Context) error {
+		if p == nil {
+			return errors.New("dependency_not_configured")
+		}
 		return p.Ping(ctx)
+	}
+}
+
+// PostgresCheck returns a CheckFunc that pings a Postgres-compatible dependency.
+func PostgresCheck(p ContextPinger) CheckFunc {
+	return func(ctx context.Context) error {
+		if p == nil {
+			return errors.New("postgres_not_configured")
+		}
+		return p.PingContext(ctx)
+	}
+}
+
+// HTTPCheck returns a CheckFunc that verifies an upstream responds with 2xx.
+func HTTPCheck(client *http.Client, url string) CheckFunc {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	return func(ctx context.Context) error {
+		if url == "" {
+			return errors.New("http_url_required")
+		}
+
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+
+		response, err := client.Do(request)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = response.Body.Close()
+		}()
+		_, _ = io.Copy(io.Discard, response.Body)
+
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			return fmt.Errorf("unexpected_status: %d", response.StatusCode)
+		}
+		return nil
 	}
 }
 
@@ -138,4 +246,21 @@ func TCPCheck(addr string) CheckFunc {
 
 func ms(d time.Duration) int64 {
 	return d.Milliseconds()
+}
+
+func detach(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
+}
+
+func (c *Checker) cached(now time.Time) (Report, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.cacheUntil.IsZero() || now.After(c.cacheUntil) {
+		return Report{}, false
+	}
+	return c.cachedReport, true
 }
