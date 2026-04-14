@@ -82,11 +82,12 @@ func (RiskLevel) EnumDescriptor() ([]byte, []int) {
 type DecisionType int32
 
 const (
-	DecisionType_DECISION_TYPE_UNSPECIFIED DecisionType = 0
-	DecisionType_DECISION_TYPE_APPROVED    DecisionType = 1
-	DecisionType_DECISION_TYPE_DENIED      DecisionType = 2
-	DecisionType_DECISION_TYPE_ESCALATED   DecisionType = 3
-	DecisionType_DECISION_TYPE_EXPIRED     DecisionType = 4
+	DecisionType_DECISION_TYPE_UNSPECIFIED   DecisionType = 0
+	DecisionType_DECISION_TYPE_APPROVED      DecisionType = 1
+	DecisionType_DECISION_TYPE_DENIED        DecisionType = 2
+	DecisionType_DECISION_TYPE_ESCALATED     DecisionType = 3
+	DecisionType_DECISION_TYPE_EXPIRED       DecisionType = 4
+	DecisionType_DECISION_TYPE_AUTO_APPROVED DecisionType = 5
 )
 
 // Enum value maps for DecisionType.
@@ -97,13 +98,15 @@ var (
 		2: "DECISION_TYPE_DENIED",
 		3: "DECISION_TYPE_ESCALATED",
 		4: "DECISION_TYPE_EXPIRED",
+		5: "DECISION_TYPE_AUTO_APPROVED",
 	}
 	DecisionType_value = map[string]int32{
-		"DECISION_TYPE_UNSPECIFIED": 0,
-		"DECISION_TYPE_APPROVED":    1,
-		"DECISION_TYPE_DENIED":      2,
-		"DECISION_TYPE_ESCALATED":   3,
-		"DECISION_TYPE_EXPIRED":     4,
+		"DECISION_TYPE_UNSPECIFIED":   0,
+		"DECISION_TYPE_APPROVED":      1,
+		"DECISION_TYPE_DENIED":        2,
+		"DECISION_TYPE_ESCALATED":     3,
+		"DECISION_TYPE_EXPIRED":       4,
+		"DECISION_TYPE_AUTO_APPROVED": 5,
 	}
 )
 
@@ -187,6 +190,144 @@ func (ActionAuthority) EnumDescriptor() ([]byte, []int) {
 	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{2}
 }
 
+// AutoApproveConfig controls automatic approval behavior for a workspace.
+type AutoApproveConfig struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Enabled            bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Threshold          *float32               `protobuf:"fixed32,2,opt,name=threshold,proto3,oneof" json:"threshold,omitempty"`                                                                           // Minimum confidence score. Defaults to 0.95 when not set.
+	MinObservations    *int32                 `protobuf:"varint,3,opt,name=min_observations,json=minObservations,proto3,oneof" json:"min_observations,omitempty"`                                         // Minimum decisions before activation. Defaults to 20 when not set.
+	ExcludedRiskLevels []RiskLevel            `protobuf:"varint,4,rep,packed,name=excluded_risk_levels,json=excludedRiskLevels,proto3,enum=approvals.v1.RiskLevel" json:"excluded_risk_levels,omitempty"` // always require human
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AutoApproveConfig) Reset() {
+	*x = AutoApproveConfig{}
+	mi := &file_approvals_v1_approvals_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoApproveConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoApproveConfig) ProtoMessage() {}
+
+func (x *AutoApproveConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_approvals_v1_approvals_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoApproveConfig.ProtoReflect.Descriptor instead.
+func (*AutoApproveConfig) Descriptor() ([]byte, []int) {
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *AutoApproveConfig) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *AutoApproveConfig) GetThreshold() float32 {
+	if x != nil && x.Threshold != nil {
+		return *x.Threshold
+	}
+	return 0
+}
+
+func (x *AutoApproveConfig) GetMinObservations() int32 {
+	if x != nil && x.MinObservations != nil {
+		return *x.MinObservations
+	}
+	return 0
+}
+
+func (x *AutoApproveConfig) GetExcludedRiskLevels() []RiskLevel {
+	if x != nil {
+		return x.ExcludedRiskLevels
+	}
+	return nil
+}
+
+// AutoApproveEvidence captures the data behind an automatic approval decision.
+type AutoApproveEvidence struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Pattern          string                 `protobuf:"bytes,1,opt,name=pattern,proto3" json:"pattern,omitempty"`
+	Confidence       float32                `protobuf:"fixed32,2,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	ObservationCount int32                  `protobuf:"varint,3,opt,name=observation_count,json=observationCount,proto3" json:"observation_count,omitempty"`
+	ThresholdApplied float32                `protobuf:"fixed32,4,opt,name=threshold_applied,json=thresholdApplied,proto3" json:"threshold_applied,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AutoApproveEvidence) Reset() {
+	*x = AutoApproveEvidence{}
+	mi := &file_approvals_v1_approvals_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoApproveEvidence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoApproveEvidence) ProtoMessage() {}
+
+func (x *AutoApproveEvidence) ProtoReflect() protoreflect.Message {
+	mi := &file_approvals_v1_approvals_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoApproveEvidence.ProtoReflect.Descriptor instead.
+func (*AutoApproveEvidence) Descriptor() ([]byte, []int) {
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AutoApproveEvidence) GetPattern() string {
+	if x != nil {
+		return x.Pattern
+	}
+	return ""
+}
+
+func (x *AutoApproveEvidence) GetConfidence() float32 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+func (x *AutoApproveEvidence) GetObservationCount() int32 {
+	if x != nil {
+		return x.ObservationCount
+	}
+	return 0
+}
+
+func (x *AutoApproveEvidence) GetThresholdApplied() float32 {
+	if x != nil {
+		return x.ThresholdApplied
+	}
+	return 0
+}
+
 // ApprovalRequest is the canonical approval request record.
 type ApprovalRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -207,7 +348,7 @@ type ApprovalRequest struct {
 
 func (x *ApprovalRequest) Reset() {
 	*x = ApprovalRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[0]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -219,7 +360,7 @@ func (x *ApprovalRequest) String() string {
 func (*ApprovalRequest) ProtoMessage() {}
 
 func (x *ApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[0]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -232,7 +373,7 @@ func (x *ApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalRequest.ProtoReflect.Descriptor instead.
 func (*ApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{0}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ApprovalRequest) GetId() string {
@@ -326,7 +467,7 @@ type ApprovalRule struct {
 
 func (x *ApprovalRule) Reset() {
 	*x = ApprovalRule{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[1]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -338,7 +479,7 @@ func (x *ApprovalRule) String() string {
 func (*ApprovalRule) ProtoMessage() {}
 
 func (x *ApprovalRule) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[1]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -351,7 +492,7 @@ func (x *ApprovalRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalRule.ProtoReflect.Descriptor instead.
 func (*ApprovalRule) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{1}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ApprovalRule) GetId() string {
@@ -391,16 +532,17 @@ func (x *ApprovalRule) GetDescription() string {
 
 // ApprovalPolicy defines the set of rules for a workspace.
 type ApprovalPolicy struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
-	Rules         []*ApprovalRule        `protobuf:"bytes,2,rep,name=rules,proto3" json:"rules,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId       string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	Rules             []*ApprovalRule        `protobuf:"bytes,2,rep,name=rules,proto3" json:"rules,omitempty"`
+	AutoApproveConfig *AutoApproveConfig     `protobuf:"bytes,3,opt,name=auto_approve_config,json=autoApproveConfig,proto3" json:"auto_approve_config,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ApprovalPolicy) Reset() {
 	*x = ApprovalPolicy{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[2]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -412,7 +554,7 @@ func (x *ApprovalPolicy) String() string {
 func (*ApprovalPolicy) ProtoMessage() {}
 
 func (x *ApprovalPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[2]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -425,7 +567,7 @@ func (x *ApprovalPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalPolicy.ProtoReflect.Descriptor instead.
 func (*ApprovalPolicy) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{2}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ApprovalPolicy) GetWorkspaceId() string {
@@ -438,6 +580,13 @@ func (x *ApprovalPolicy) GetWorkspaceId() string {
 func (x *ApprovalPolicy) GetRules() []*ApprovalRule {
 	if x != nil {
 		return x.Rules
+	}
+	return nil
+}
+
+func (x *ApprovalPolicy) GetAutoApproveConfig() *AutoApproveConfig {
+	if x != nil {
+		return x.AutoApproveConfig
 	}
 	return nil
 }
@@ -457,7 +606,7 @@ type ApprovalDecision struct {
 
 func (x *ApprovalDecision) Reset() {
 	*x = ApprovalDecision{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[3]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -469,7 +618,7 @@ func (x *ApprovalDecision) String() string {
 func (*ApprovalDecision) ProtoMessage() {}
 
 func (x *ApprovalDecision) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[3]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -482,7 +631,7 @@ func (x *ApprovalDecision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalDecision.ProtoReflect.Descriptor instead.
 func (*ApprovalDecision) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{3}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ApprovalDecision) GetId() string {
@@ -533,13 +682,14 @@ type ApprovalHabit struct {
 	Pattern               string                 `protobuf:"bytes,1,opt,name=pattern,proto3" json:"pattern,omitempty"`
 	AutoApproveConfidence float32                `protobuf:"fixed32,2,opt,name=auto_approve_confidence,json=autoApproveConfidence,proto3" json:"auto_approve_confidence,omitempty"`
 	ObservationCount      int32                  `protobuf:"varint,3,opt,name=observation_count,json=observationCount,proto3" json:"observation_count,omitempty"`
+	ApprovedCount         int32                  `protobuf:"varint,4,opt,name=approved_count,json=approvedCount,proto3" json:"approved_count,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ApprovalHabit) Reset() {
 	*x = ApprovalHabit{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[4]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -551,7 +701,7 @@ func (x *ApprovalHabit) String() string {
 func (*ApprovalHabit) ProtoMessage() {}
 
 func (x *ApprovalHabit) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[4]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -564,7 +714,7 @@ func (x *ApprovalHabit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalHabit.ProtoReflect.Descriptor instead.
 func (*ApprovalHabit) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{4}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ApprovalHabit) GetPattern() string {
@@ -588,6 +738,13 @@ func (x *ApprovalHabit) GetObservationCount() int32 {
 	return 0
 }
 
+func (x *ApprovalHabit) GetApprovedCount() int32 {
+	if x != nil {
+		return x.ApprovedCount
+	}
+	return 0
+}
+
 type RequestApprovalRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	WorkspaceId    string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
@@ -604,7 +761,7 @@ type RequestApprovalRequest struct {
 
 func (x *RequestApprovalRequest) Reset() {
 	*x = RequestApprovalRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[5]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -616,7 +773,7 @@ func (x *RequestApprovalRequest) String() string {
 func (*RequestApprovalRequest) ProtoMessage() {}
 
 func (x *RequestApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[5]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -629,7 +786,7 @@ func (x *RequestApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestApprovalRequest.ProtoReflect.Descriptor instead.
 func (*RequestApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{5}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RequestApprovalRequest) GetWorkspaceId() string {
@@ -689,15 +846,16 @@ func (x *RequestApprovalRequest) GetContextJson() string {
 }
 
 type RequestApprovalResponse struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	ApprovalRequest *ApprovalRequest       `protobuf:"bytes,1,opt,name=approval_request,json=approvalRequest,proto3" json:"approval_request,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ApprovalRequest     *ApprovalRequest       `protobuf:"bytes,1,opt,name=approval_request,json=approvalRequest,proto3" json:"approval_request,omitempty"`
+	AutoApproveEvidence *AutoApproveEvidence   `protobuf:"bytes,2,opt,name=auto_approve_evidence,json=autoApproveEvidence,proto3" json:"auto_approve_evidence,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RequestApprovalResponse) Reset() {
 	*x = RequestApprovalResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[6]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +867,7 @@ func (x *RequestApprovalResponse) String() string {
 func (*RequestApprovalResponse) ProtoMessage() {}
 
 func (x *RequestApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[6]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,12 +880,19 @@ func (x *RequestApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestApprovalResponse.ProtoReflect.Descriptor instead.
 func (*RequestApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{6}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RequestApprovalResponse) GetApprovalRequest() *ApprovalRequest {
 	if x != nil {
 		return x.ApprovalRequest
+	}
+	return nil
+}
+
+func (x *RequestApprovalResponse) GetAutoApproveEvidence() *AutoApproveEvidence {
+	if x != nil {
+		return x.AutoApproveEvidence
 	}
 	return nil
 }
@@ -744,7 +909,7 @@ type ResolveApprovalRequest struct {
 
 func (x *ResolveApprovalRequest) Reset() {
 	*x = ResolveApprovalRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[7]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -756,7 +921,7 @@ func (x *ResolveApprovalRequest) String() string {
 func (*ResolveApprovalRequest) ProtoMessage() {}
 
 func (x *ResolveApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[7]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -769,7 +934,7 @@ func (x *ResolveApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveApprovalRequest.ProtoReflect.Descriptor instead.
 func (*ResolveApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{7}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ResolveApprovalRequest) GetApprovalRequestId() string {
@@ -809,7 +974,7 @@ type ResolveApprovalResponse struct {
 
 func (x *ResolveApprovalResponse) Reset() {
 	*x = ResolveApprovalResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[8]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -821,7 +986,7 @@ func (x *ResolveApprovalResponse) String() string {
 func (*ResolveApprovalResponse) ProtoMessage() {}
 
 func (x *ResolveApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[8]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +999,7 @@ func (x *ResolveApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveApprovalResponse.ProtoReflect.Descriptor instead.
 func (*ResolveApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{8}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ResolveApprovalResponse) GetDecision() *ApprovalDecision {
@@ -853,7 +1018,7 @@ type GetPolicyRequest struct {
 
 func (x *GetPolicyRequest) Reset() {
 	*x = GetPolicyRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[9]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +1030,7 @@ func (x *GetPolicyRequest) String() string {
 func (*GetPolicyRequest) ProtoMessage() {}
 
 func (x *GetPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[9]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +1043,7 @@ func (x *GetPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPolicyRequest.ProtoReflect.Descriptor instead.
 func (*GetPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{9}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetPolicyRequest) GetWorkspaceId() string {
@@ -897,7 +1062,7 @@ type GetPolicyResponse struct {
 
 func (x *GetPolicyResponse) Reset() {
 	*x = GetPolicyResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[10]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -909,7 +1074,7 @@ func (x *GetPolicyResponse) String() string {
 func (*GetPolicyResponse) ProtoMessage() {}
 
 func (x *GetPolicyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[10]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -922,7 +1087,7 @@ func (x *GetPolicyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPolicyResponse.ProtoReflect.Descriptor instead.
 func (*GetPolicyResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{10}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetPolicyResponse) GetPolicy() *ApprovalPolicy {
@@ -941,7 +1106,7 @@ type SetPolicyRequest struct {
 
 func (x *SetPolicyRequest) Reset() {
 	*x = SetPolicyRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[11]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -953,7 +1118,7 @@ func (x *SetPolicyRequest) String() string {
 func (*SetPolicyRequest) ProtoMessage() {}
 
 func (x *SetPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[11]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -966,7 +1131,7 @@ func (x *SetPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPolicyRequest.ProtoReflect.Descriptor instead.
 func (*SetPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{11}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SetPolicyRequest) GetPolicy() *ApprovalPolicy {
@@ -985,7 +1150,7 @@ type SetPolicyResponse struct {
 
 func (x *SetPolicyResponse) Reset() {
 	*x = SetPolicyResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[12]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -997,7 +1162,7 @@ func (x *SetPolicyResponse) String() string {
 func (*SetPolicyResponse) ProtoMessage() {}
 
 func (x *SetPolicyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[12]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1010,7 +1175,7 @@ func (x *SetPolicyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPolicyResponse.ProtoReflect.Descriptor instead.
 func (*SetPolicyResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{12}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SetPolicyResponse) GetPolicy() *ApprovalPolicy {
@@ -1031,7 +1196,7 @@ type ListPendingRequest struct {
 
 func (x *ListPendingRequest) Reset() {
 	*x = ListPendingRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[13]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1043,7 +1208,7 @@ func (x *ListPendingRequest) String() string {
 func (*ListPendingRequest) ProtoMessage() {}
 
 func (x *ListPendingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[13]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1056,7 +1221,7 @@ func (x *ListPendingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPendingRequest.ProtoReflect.Descriptor instead.
 func (*ListPendingRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{13}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListPendingRequest) GetWorkspaceId() string {
@@ -1090,7 +1255,7 @@ type ListPendingResponse struct {
 
 func (x *ListPendingResponse) Reset() {
 	*x = ListPendingResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[14]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1102,7 +1267,7 @@ func (x *ListPendingResponse) String() string {
 func (*ListPendingResponse) ProtoMessage() {}
 
 func (x *ListPendingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[14]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1115,7 +1280,7 @@ func (x *ListPendingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPendingResponse.ProtoReflect.Descriptor instead.
 func (*ListPendingResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{14}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListPendingResponse) GetRequests() []*ApprovalRequest {
@@ -1141,7 +1306,7 @@ type GetHabitsRequest struct {
 
 func (x *GetHabitsRequest) Reset() {
 	*x = GetHabitsRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[15]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1153,7 +1318,7 @@ func (x *GetHabitsRequest) String() string {
 func (*GetHabitsRequest) ProtoMessage() {}
 
 func (x *GetHabitsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[15]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1166,7 +1331,7 @@ func (x *GetHabitsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetHabitsRequest.ProtoReflect.Descriptor instead.
 func (*GetHabitsRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{15}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetHabitsRequest) GetWorkspaceId() string {
@@ -1185,7 +1350,7 @@ type GetHabitsResponse struct {
 
 func (x *GetHabitsResponse) Reset() {
 	*x = GetHabitsResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[16]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1197,7 +1362,7 @@ func (x *GetHabitsResponse) String() string {
 func (*GetHabitsResponse) ProtoMessage() {}
 
 func (x *GetHabitsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[16]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1210,7 +1375,7 @@ func (x *GetHabitsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetHabitsResponse.ProtoReflect.Descriptor instead.
 func (*GetHabitsResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{16}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetHabitsResponse) GetHabits() []*ApprovalHabit {
@@ -1230,7 +1395,7 @@ type EscalateRequest struct {
 
 func (x *EscalateRequest) Reset() {
 	*x = EscalateRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[17]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1242,7 +1407,7 @@ func (x *EscalateRequest) String() string {
 func (*EscalateRequest) ProtoMessage() {}
 
 func (x *EscalateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[17]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1255,7 +1420,7 @@ func (x *EscalateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EscalateRequest.ProtoReflect.Descriptor instead.
 func (*EscalateRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{17}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *EscalateRequest) GetApprovalRequestId() string {
@@ -1281,7 +1446,7 @@ type EscalateResponse struct {
 
 func (x *EscalateResponse) Reset() {
 	*x = EscalateResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[18]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1293,7 +1458,7 @@ func (x *EscalateResponse) String() string {
 func (*EscalateResponse) ProtoMessage() {}
 
 func (x *EscalateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[18]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1306,7 +1471,7 @@ func (x *EscalateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EscalateResponse.ProtoReflect.Descriptor instead.
 func (*EscalateResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{18}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EscalateResponse) GetApprovalRequest() *ApprovalRequest {
@@ -1326,7 +1491,7 @@ type GetApprovalRequest struct {
 
 func (x *GetApprovalRequest) Reset() {
 	*x = GetApprovalRequest{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[19]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1338,7 +1503,7 @@ func (x *GetApprovalRequest) String() string {
 func (*GetApprovalRequest) ProtoMessage() {}
 
 func (x *GetApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[19]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1351,7 +1516,7 @@ func (x *GetApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApprovalRequest.ProtoReflect.Descriptor instead.
 func (*GetApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{19}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetApprovalRequest) GetApprovalRequestId() string {
@@ -1379,7 +1544,7 @@ type GetApprovalResponse struct {
 
 func (x *GetApprovalResponse) Reset() {
 	*x = GetApprovalResponse{}
-	mi := &file_approvals_v1_approvals_proto_msgTypes[20]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1391,7 +1556,7 @@ func (x *GetApprovalResponse) String() string {
 func (*GetApprovalResponse) ProtoMessage() {}
 
 func (x *GetApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_approvals_v1_approvals_proto_msgTypes[20]
+	mi := &file_approvals_v1_approvals_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1404,7 +1569,7 @@ func (x *GetApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApprovalResponse.ProtoReflect.Descriptor instead.
 func (*GetApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{20}
+	return file_approvals_v1_approvals_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetApprovalResponse) GetApprovalRequest() *ApprovalRequest {
@@ -1432,7 +1597,22 @@ var File_approvals_v1_approvals_proto protoreflect.FileDescriptor
 
 const file_approvals_v1_approvals_proto_rawDesc = "" +
 	"\n" +
-	"\x1capprovals/v1/approvals.proto\x12\fapprovals.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xbc\x03\n" +
+	"\x1capprovals/v1/approvals.proto\x12\fapprovals.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xee\x01\n" +
+	"\x11AutoApproveConfig\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12!\n" +
+	"\tthreshold\x18\x02 \x01(\x02H\x00R\tthreshold\x88\x01\x01\x12.\n" +
+	"\x10min_observations\x18\x03 \x01(\x05H\x01R\x0fminObservations\x88\x01\x01\x12I\n" +
+	"\x14excluded_risk_levels\x18\x04 \x03(\x0e2\x17.approvals.v1.RiskLevelR\x12excludedRiskLevelsB\f\n" +
+	"\n" +
+	"_thresholdB\x13\n" +
+	"\x11_min_observations\"\xa9\x01\n" +
+	"\x13AutoApproveEvidence\x12\x18\n" +
+	"\apattern\x18\x01 \x01(\tR\apattern\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\x02 \x01(\x02R\n" +
+	"confidence\x12+\n" +
+	"\x11observation_count\x18\x03 \x01(\x05R\x10observationCount\x12+\n" +
+	"\x11threshold_applied\x18\x04 \x01(\x02R\x10thresholdApplied\"\xbc\x03\n" +
 	"\x0fApprovalRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12(\n" +
@@ -1456,10 +1636,11 @@ const file_approvals_v1_approvals_proto_rawDesc = "" +
 	"actionType\x12=\n" +
 	"\x0emin_risk_level\x18\x03 \x01(\x0e2\x17.approvals.v1.RiskLevelR\fminRiskLevel\x12;\n" +
 	"\tauthority\x18\x04 \x01(\x0e2\x1d.approvals.v1.ActionAuthorityR\tauthority\x12 \n" +
-	"\vdescription\x18\x05 \x01(\tR\vdescription\"e\n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\"\xb6\x01\n" +
 	"\x0eApprovalPolicy\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x120\n" +
-	"\x05rules\x18\x02 \x03(\v2\x1a.approvals.v1.ApprovalRuleR\x05rules\"\xfc\x01\n" +
+	"\x05rules\x18\x02 \x03(\v2\x1a.approvals.v1.ApprovalRuleR\x05rules\x12O\n" +
+	"\x13auto_approve_config\x18\x03 \x01(\v2\x1f.approvals.v1.AutoApproveConfigR\x11autoApproveConfig\"\xfc\x01\n" +
 	"\x10ApprovalDecision\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
 	"\x13approval_request_id\x18\x02 \x01(\tR\x11approvalRequestId\x126\n" +
@@ -1468,11 +1649,12 @@ const file_approvals_v1_approvals_proto_rawDesc = "" +
 	"decided_by\x18\x04 \x01(\tR\tdecidedBy\x12\x16\n" +
 	"\x06reason\x18\x05 \x01(\tR\x06reason\x129\n" +
 	"\n" +
-	"decided_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tdecidedAt\"\x8e\x01\n" +
+	"decided_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tdecidedAt\"\xb5\x01\n" +
 	"\rApprovalHabit\x12\x18\n" +
 	"\apattern\x18\x01 \x01(\tR\apattern\x126\n" +
 	"\x17auto_approve_confidence\x18\x02 \x01(\x02R\x15autoApproveConfidence\x12+\n" +
-	"\x11observation_count\x18\x03 \x01(\x05R\x10observationCount\"\xbd\x02\n" +
+	"\x11observation_count\x18\x03 \x01(\x05R\x10observationCount\x12%\n" +
+	"\x0eapproved_count\x18\x04 \x01(\x05R\rapprovedCount\"\xbd\x02\n" +
 	"\x16RequestApprovalRequest\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12(\n" +
 	"\x10approver_user_id\x18\b \x01(\tR\x0eapproverUserId\x12\x19\n" +
@@ -1483,9 +1665,10 @@ const file_approvals_v1_approvals_proto_rawDesc = "" +
 	"\x0eaction_payload\x18\x05 \x01(\fR\ractionPayload\x126\n" +
 	"\n" +
 	"risk_level\x18\x06 \x01(\x0e2\x17.approvals.v1.RiskLevelR\triskLevel\x12!\n" +
-	"\fcontext_json\x18\a \x01(\tR\vcontextJson\"c\n" +
+	"\fcontext_json\x18\a \x01(\tR\vcontextJson\"\xba\x01\n" +
 	"\x17RequestApprovalResponse\x12H\n" +
-	"\x10approval_request\x18\x01 \x01(\v2\x1d.approvals.v1.ApprovalRequestR\x0fapprovalRequest\"\xb7\x01\n" +
+	"\x10approval_request\x18\x01 \x01(\v2\x1d.approvals.v1.ApprovalRequestR\x0fapprovalRequest\x12U\n" +
+	"\x15auto_approve_evidence\x18\x02 \x01(\v2!.approvals.v1.AutoApproveEvidenceR\x13autoApproveEvidence\"\xb7\x01\n" +
 	"\x16ResolveApprovalRequest\x12.\n" +
 	"\x13approval_request_id\x18\x01 \x01(\tR\x11approvalRequestId\x126\n" +
 	"\bdecision\x18\x02 \x01(\x0e2\x1a.approvals.v1.DecisionTypeR\bdecision\x12\x1d\n" +
@@ -1530,13 +1713,14 @@ const file_approvals_v1_approvals_proto_rawDesc = "" +
 	"\x0eRISK_LEVEL_LOW\x10\x01\x12\x15\n" +
 	"\x11RISK_LEVEL_MEDIUM\x10\x02\x12\x13\n" +
 	"\x0fRISK_LEVEL_HIGH\x10\x03\x12\x17\n" +
-	"\x13RISK_LEVEL_CRITICAL\x10\x04*\x9b\x01\n" +
+	"\x13RISK_LEVEL_CRITICAL\x10\x04*\xbc\x01\n" +
 	"\fDecisionType\x12\x1d\n" +
 	"\x19DECISION_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16DECISION_TYPE_APPROVED\x10\x01\x12\x18\n" +
 	"\x14DECISION_TYPE_DENIED\x10\x02\x12\x1b\n" +
 	"\x17DECISION_TYPE_ESCALATED\x10\x03\x12\x19\n" +
-	"\x15DECISION_TYPE_EXPIRED\x10\x04*\x94\x01\n" +
+	"\x15DECISION_TYPE_EXPIRED\x10\x04\x12\x1f\n" +
+	"\x1bDECISION_TYPE_AUTO_APPROVED\x10\x05*\x94\x01\n" +
 	"\x0fActionAuthority\x12 \n" +
 	"\x1cACTION_AUTHORITY_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14ACTION_AUTHORITY_OWN\x10\x01\x12\x1e\n" +
@@ -1565,76 +1749,81 @@ func file_approvals_v1_approvals_proto_rawDescGZIP() []byte {
 }
 
 var file_approvals_v1_approvals_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_approvals_v1_approvals_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_approvals_v1_approvals_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_approvals_v1_approvals_proto_goTypes = []any{
 	(RiskLevel)(0),                  // 0: approvals.v1.RiskLevel
 	(DecisionType)(0),               // 1: approvals.v1.DecisionType
 	(ActionAuthority)(0),            // 2: approvals.v1.ActionAuthority
-	(*ApprovalRequest)(nil),         // 3: approvals.v1.ApprovalRequest
-	(*ApprovalRule)(nil),            // 4: approvals.v1.ApprovalRule
-	(*ApprovalPolicy)(nil),          // 5: approvals.v1.ApprovalPolicy
-	(*ApprovalDecision)(nil),        // 6: approvals.v1.ApprovalDecision
-	(*ApprovalHabit)(nil),           // 7: approvals.v1.ApprovalHabit
-	(*RequestApprovalRequest)(nil),  // 8: approvals.v1.RequestApprovalRequest
-	(*RequestApprovalResponse)(nil), // 9: approvals.v1.RequestApprovalResponse
-	(*ResolveApprovalRequest)(nil),  // 10: approvals.v1.ResolveApprovalRequest
-	(*ResolveApprovalResponse)(nil), // 11: approvals.v1.ResolveApprovalResponse
-	(*GetPolicyRequest)(nil),        // 12: approvals.v1.GetPolicyRequest
-	(*GetPolicyResponse)(nil),       // 13: approvals.v1.GetPolicyResponse
-	(*SetPolicyRequest)(nil),        // 14: approvals.v1.SetPolicyRequest
-	(*SetPolicyResponse)(nil),       // 15: approvals.v1.SetPolicyResponse
-	(*ListPendingRequest)(nil),      // 16: approvals.v1.ListPendingRequest
-	(*ListPendingResponse)(nil),     // 17: approvals.v1.ListPendingResponse
-	(*GetHabitsRequest)(nil),        // 18: approvals.v1.GetHabitsRequest
-	(*GetHabitsResponse)(nil),       // 19: approvals.v1.GetHabitsResponse
-	(*EscalateRequest)(nil),         // 20: approvals.v1.EscalateRequest
-	(*EscalateResponse)(nil),        // 21: approvals.v1.EscalateResponse
-	(*GetApprovalRequest)(nil),      // 22: approvals.v1.GetApprovalRequest
-	(*GetApprovalResponse)(nil),     // 23: approvals.v1.GetApprovalResponse
-	(*timestamppb.Timestamp)(nil),   // 24: google.protobuf.Timestamp
+	(*AutoApproveConfig)(nil),       // 3: approvals.v1.AutoApproveConfig
+	(*AutoApproveEvidence)(nil),     // 4: approvals.v1.AutoApproveEvidence
+	(*ApprovalRequest)(nil),         // 5: approvals.v1.ApprovalRequest
+	(*ApprovalRule)(nil),            // 6: approvals.v1.ApprovalRule
+	(*ApprovalPolicy)(nil),          // 7: approvals.v1.ApprovalPolicy
+	(*ApprovalDecision)(nil),        // 8: approvals.v1.ApprovalDecision
+	(*ApprovalHabit)(nil),           // 9: approvals.v1.ApprovalHabit
+	(*RequestApprovalRequest)(nil),  // 10: approvals.v1.RequestApprovalRequest
+	(*RequestApprovalResponse)(nil), // 11: approvals.v1.RequestApprovalResponse
+	(*ResolveApprovalRequest)(nil),  // 12: approvals.v1.ResolveApprovalRequest
+	(*ResolveApprovalResponse)(nil), // 13: approvals.v1.ResolveApprovalResponse
+	(*GetPolicyRequest)(nil),        // 14: approvals.v1.GetPolicyRequest
+	(*GetPolicyResponse)(nil),       // 15: approvals.v1.GetPolicyResponse
+	(*SetPolicyRequest)(nil),        // 16: approvals.v1.SetPolicyRequest
+	(*SetPolicyResponse)(nil),       // 17: approvals.v1.SetPolicyResponse
+	(*ListPendingRequest)(nil),      // 18: approvals.v1.ListPendingRequest
+	(*ListPendingResponse)(nil),     // 19: approvals.v1.ListPendingResponse
+	(*GetHabitsRequest)(nil),        // 20: approvals.v1.GetHabitsRequest
+	(*GetHabitsResponse)(nil),       // 21: approvals.v1.GetHabitsResponse
+	(*EscalateRequest)(nil),         // 22: approvals.v1.EscalateRequest
+	(*EscalateResponse)(nil),        // 23: approvals.v1.EscalateResponse
+	(*GetApprovalRequest)(nil),      // 24: approvals.v1.GetApprovalRequest
+	(*GetApprovalResponse)(nil),     // 25: approvals.v1.GetApprovalResponse
+	(*timestamppb.Timestamp)(nil),   // 26: google.protobuf.Timestamp
 }
 var file_approvals_v1_approvals_proto_depIdxs = []int32{
-	0,  // 0: approvals.v1.ApprovalRequest.risk_level:type_name -> approvals.v1.RiskLevel
-	24, // 1: approvals.v1.ApprovalRequest.created_at:type_name -> google.protobuf.Timestamp
-	24, // 2: approvals.v1.ApprovalRequest.updated_at:type_name -> google.protobuf.Timestamp
-	0,  // 3: approvals.v1.ApprovalRule.min_risk_level:type_name -> approvals.v1.RiskLevel
-	2,  // 4: approvals.v1.ApprovalRule.authority:type_name -> approvals.v1.ActionAuthority
-	4,  // 5: approvals.v1.ApprovalPolicy.rules:type_name -> approvals.v1.ApprovalRule
-	1,  // 6: approvals.v1.ApprovalDecision.decision:type_name -> approvals.v1.DecisionType
-	24, // 7: approvals.v1.ApprovalDecision.decided_at:type_name -> google.protobuf.Timestamp
-	0,  // 8: approvals.v1.RequestApprovalRequest.risk_level:type_name -> approvals.v1.RiskLevel
-	3,  // 9: approvals.v1.RequestApprovalResponse.approval_request:type_name -> approvals.v1.ApprovalRequest
-	1,  // 10: approvals.v1.ResolveApprovalRequest.decision:type_name -> approvals.v1.DecisionType
-	6,  // 11: approvals.v1.ResolveApprovalResponse.decision:type_name -> approvals.v1.ApprovalDecision
-	5,  // 12: approvals.v1.GetPolicyResponse.policy:type_name -> approvals.v1.ApprovalPolicy
-	5,  // 13: approvals.v1.SetPolicyRequest.policy:type_name -> approvals.v1.ApprovalPolicy
-	5,  // 14: approvals.v1.SetPolicyResponse.policy:type_name -> approvals.v1.ApprovalPolicy
-	3,  // 15: approvals.v1.ListPendingResponse.requests:type_name -> approvals.v1.ApprovalRequest
-	7,  // 16: approvals.v1.GetHabitsResponse.habits:type_name -> approvals.v1.ApprovalHabit
-	3,  // 17: approvals.v1.EscalateResponse.approval_request:type_name -> approvals.v1.ApprovalRequest
-	3,  // 18: approvals.v1.GetApprovalResponse.approval_request:type_name -> approvals.v1.ApprovalRequest
-	6,  // 19: approvals.v1.GetApprovalResponse.decisions:type_name -> approvals.v1.ApprovalDecision
-	8,  // 20: approvals.v1.ApprovalService.RequestApproval:input_type -> approvals.v1.RequestApprovalRequest
-	10, // 21: approvals.v1.ApprovalService.ResolveApproval:input_type -> approvals.v1.ResolveApprovalRequest
-	12, // 22: approvals.v1.ApprovalService.GetPolicy:input_type -> approvals.v1.GetPolicyRequest
-	14, // 23: approvals.v1.ApprovalService.SetPolicy:input_type -> approvals.v1.SetPolicyRequest
-	16, // 24: approvals.v1.ApprovalService.ListPending:input_type -> approvals.v1.ListPendingRequest
-	18, // 25: approvals.v1.ApprovalService.GetHabits:input_type -> approvals.v1.GetHabitsRequest
-	20, // 26: approvals.v1.ApprovalService.Escalate:input_type -> approvals.v1.EscalateRequest
-	22, // 27: approvals.v1.ApprovalService.GetApproval:input_type -> approvals.v1.GetApprovalRequest
-	9,  // 28: approvals.v1.ApprovalService.RequestApproval:output_type -> approvals.v1.RequestApprovalResponse
-	11, // 29: approvals.v1.ApprovalService.ResolveApproval:output_type -> approvals.v1.ResolveApprovalResponse
-	13, // 30: approvals.v1.ApprovalService.GetPolicy:output_type -> approvals.v1.GetPolicyResponse
-	15, // 31: approvals.v1.ApprovalService.SetPolicy:output_type -> approvals.v1.SetPolicyResponse
-	17, // 32: approvals.v1.ApprovalService.ListPending:output_type -> approvals.v1.ListPendingResponse
-	19, // 33: approvals.v1.ApprovalService.GetHabits:output_type -> approvals.v1.GetHabitsResponse
-	21, // 34: approvals.v1.ApprovalService.Escalate:output_type -> approvals.v1.EscalateResponse
-	23, // 35: approvals.v1.ApprovalService.GetApproval:output_type -> approvals.v1.GetApprovalResponse
-	28, // [28:36] is the sub-list for method output_type
-	20, // [20:28] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	0,  // 0: approvals.v1.AutoApproveConfig.excluded_risk_levels:type_name -> approvals.v1.RiskLevel
+	0,  // 1: approvals.v1.ApprovalRequest.risk_level:type_name -> approvals.v1.RiskLevel
+	26, // 2: approvals.v1.ApprovalRequest.created_at:type_name -> google.protobuf.Timestamp
+	26, // 3: approvals.v1.ApprovalRequest.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 4: approvals.v1.ApprovalRule.min_risk_level:type_name -> approvals.v1.RiskLevel
+	2,  // 5: approvals.v1.ApprovalRule.authority:type_name -> approvals.v1.ActionAuthority
+	6,  // 6: approvals.v1.ApprovalPolicy.rules:type_name -> approvals.v1.ApprovalRule
+	3,  // 7: approvals.v1.ApprovalPolicy.auto_approve_config:type_name -> approvals.v1.AutoApproveConfig
+	1,  // 8: approvals.v1.ApprovalDecision.decision:type_name -> approvals.v1.DecisionType
+	26, // 9: approvals.v1.ApprovalDecision.decided_at:type_name -> google.protobuf.Timestamp
+	0,  // 10: approvals.v1.RequestApprovalRequest.risk_level:type_name -> approvals.v1.RiskLevel
+	5,  // 11: approvals.v1.RequestApprovalResponse.approval_request:type_name -> approvals.v1.ApprovalRequest
+	4,  // 12: approvals.v1.RequestApprovalResponse.auto_approve_evidence:type_name -> approvals.v1.AutoApproveEvidence
+	1,  // 13: approvals.v1.ResolveApprovalRequest.decision:type_name -> approvals.v1.DecisionType
+	8,  // 14: approvals.v1.ResolveApprovalResponse.decision:type_name -> approvals.v1.ApprovalDecision
+	7,  // 15: approvals.v1.GetPolicyResponse.policy:type_name -> approvals.v1.ApprovalPolicy
+	7,  // 16: approvals.v1.SetPolicyRequest.policy:type_name -> approvals.v1.ApprovalPolicy
+	7,  // 17: approvals.v1.SetPolicyResponse.policy:type_name -> approvals.v1.ApprovalPolicy
+	5,  // 18: approvals.v1.ListPendingResponse.requests:type_name -> approvals.v1.ApprovalRequest
+	9,  // 19: approvals.v1.GetHabitsResponse.habits:type_name -> approvals.v1.ApprovalHabit
+	5,  // 20: approvals.v1.EscalateResponse.approval_request:type_name -> approvals.v1.ApprovalRequest
+	5,  // 21: approvals.v1.GetApprovalResponse.approval_request:type_name -> approvals.v1.ApprovalRequest
+	8,  // 22: approvals.v1.GetApprovalResponse.decisions:type_name -> approvals.v1.ApprovalDecision
+	10, // 23: approvals.v1.ApprovalService.RequestApproval:input_type -> approvals.v1.RequestApprovalRequest
+	12, // 24: approvals.v1.ApprovalService.ResolveApproval:input_type -> approvals.v1.ResolveApprovalRequest
+	14, // 25: approvals.v1.ApprovalService.GetPolicy:input_type -> approvals.v1.GetPolicyRequest
+	16, // 26: approvals.v1.ApprovalService.SetPolicy:input_type -> approvals.v1.SetPolicyRequest
+	18, // 27: approvals.v1.ApprovalService.ListPending:input_type -> approvals.v1.ListPendingRequest
+	20, // 28: approvals.v1.ApprovalService.GetHabits:input_type -> approvals.v1.GetHabitsRequest
+	22, // 29: approvals.v1.ApprovalService.Escalate:input_type -> approvals.v1.EscalateRequest
+	24, // 30: approvals.v1.ApprovalService.GetApproval:input_type -> approvals.v1.GetApprovalRequest
+	11, // 31: approvals.v1.ApprovalService.RequestApproval:output_type -> approvals.v1.RequestApprovalResponse
+	13, // 32: approvals.v1.ApprovalService.ResolveApproval:output_type -> approvals.v1.ResolveApprovalResponse
+	15, // 33: approvals.v1.ApprovalService.GetPolicy:output_type -> approvals.v1.GetPolicyResponse
+	17, // 34: approvals.v1.ApprovalService.SetPolicy:output_type -> approvals.v1.SetPolicyResponse
+	19, // 35: approvals.v1.ApprovalService.ListPending:output_type -> approvals.v1.ListPendingResponse
+	21, // 36: approvals.v1.ApprovalService.GetHabits:output_type -> approvals.v1.GetHabitsResponse
+	23, // 37: approvals.v1.ApprovalService.Escalate:output_type -> approvals.v1.EscalateResponse
+	25, // 38: approvals.v1.ApprovalService.GetApproval:output_type -> approvals.v1.GetApprovalResponse
+	31, // [31:39] is the sub-list for method output_type
+	23, // [23:31] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_approvals_v1_approvals_proto_init() }
@@ -1642,13 +1831,14 @@ func file_approvals_v1_approvals_proto_init() {
 	if File_approvals_v1_approvals_proto != nil {
 		return
 	}
+	file_approvals_v1_approvals_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_approvals_v1_approvals_proto_rawDesc), len(file_approvals_v1_approvals_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   21,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

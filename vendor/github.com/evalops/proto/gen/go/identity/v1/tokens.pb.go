@@ -347,12 +347,25 @@ func (x *IssueServiceTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 }
 
 type IssueAgentTokenRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentType     string                 `protobuf:"bytes,1,opt,name=agent_type,json=agentType,proto3" json:"agent_type,omitempty"`
-	Capabilities  []string               `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	Scopes        []string               `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
-	Surface       string                 `protobuf:"bytes,4,opt,name=surface,proto3" json:"surface,omitempty"`
-	TtlSeconds    int32                  `protobuf:"varint,5,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated: use agent_id instead. Ignored when agent_id is set.
+	// Accepted for backward compatibility when agent_id is empty.
+	//
+	// Deprecated: Marked as deprecated in identity/v1/tokens.proto.
+	AgentType string `protobuf:"bytes,1,opt,name=agent_type,json=agentType,proto3" json:"agent_type,omitempty"`
+	// Deprecated: use agent_id instead. Ignored when agent_id is set.
+	// Accepted for backward compatibility when agent_id is empty.
+	//
+	// Deprecated: Marked as deprecated in identity/v1/tokens.proto.
+	Capabilities []string `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Scopes       []string `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	Surface      string   `protobuf:"bytes,4,opt,name=surface,proto3" json:"surface,omitempty"`
+	TtlSeconds   int32    `protobuf:"varint,5,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	// When set, the identity service looks up the agent record in registry
+	// and derives agent_type and capabilities from it. Takes precedence over
+	// the deprecated agent_type and capabilities fields. Must reference an
+	// existing agents/v1 Agent record.
+	AgentId       string `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -387,6 +400,7 @@ func (*IssueAgentTokenRequest) Descriptor() ([]byte, []int) {
 	return file_identity_v1_tokens_proto_rawDescGZIP(), []int{4}
 }
 
+// Deprecated: Marked as deprecated in identity/v1/tokens.proto.
 func (x *IssueAgentTokenRequest) GetAgentType() string {
 	if x != nil {
 		return x.AgentType
@@ -394,6 +408,7 @@ func (x *IssueAgentTokenRequest) GetAgentType() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in identity/v1/tokens.proto.
 func (x *IssueAgentTokenRequest) GetCapabilities() []string {
 	if x != nil {
 		return x.Capabilities
@@ -420,6 +435,13 @@ func (x *IssueAgentTokenRequest) GetTtlSeconds() int32 {
 		return x.TtlSeconds
 	}
 	return 0
+}
+
+func (x *IssueAgentTokenRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
 }
 
 type IssueAgentTokenResponse struct {
@@ -510,15 +532,16 @@ const file_identity_v1_tokens_proto_rawDesc = "" +
 	"\x19IssueServiceTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xae\x01\n" +
-	"\x16IssueAgentTokenRequest\x12\x1d\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xd1\x01\n" +
+	"\x16IssueAgentTokenRequest\x12!\n" +
 	"\n" +
-	"agent_type\x18\x01 \x01(\tR\tagentType\x12\"\n" +
-	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\x12\x16\n" +
+	"agent_type\x18\x01 \x01(\tB\x02\x18\x01R\tagentType\x12&\n" +
+	"\fcapabilities\x18\x02 \x03(\tB\x02\x18\x01R\fcapabilities\x12\x16\n" +
 	"\x06scopes\x18\x03 \x03(\tR\x06scopes\x12\x18\n" +
 	"\asurface\x18\x04 \x01(\tR\asurface\x12\x1f\n" +
 	"\vttl_seconds\x18\x05 \x01(\x05R\n" +
-	"ttlSeconds\"j\n" +
+	"ttlSeconds\x12\x19\n" +
+	"\bagent_id\x18\x06 \x01(\tR\aagentId\"j\n" +
 	"\x17IssueAgentTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x129\n" +
 	"\n" +

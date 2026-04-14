@@ -25,7 +25,7 @@ github.com/cespare/xxhash/v2
 # github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
 ## explicit
 github.com/dgryski/go-rendezvous
-# github.com/evalops/proto v0.0.0-20260414164405-b8801e57d6d0
+# github.com/evalops/proto v0.0.0-20260414193513-3db7075bd55b
 ## explicit; go 1.23.0
 github.com/evalops/proto/gen/go/approvals/v1
 github.com/evalops/proto/gen/go/approvals/v1/approvalsv1connect
@@ -78,8 +78,6 @@ github.com/jackc/puddle/v2/internal/genstack
 ## explicit; go 1.24
 github.com/klauspost/compress/flate
 github.com/klauspost/compress/internal/le
-# github.com/kr/text v0.2.0
-## explicit
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 ## explicit
 github.com/munnerz/goautoneg
