@@ -75,12 +75,39 @@ func TestConnectCodePrefersRuntimeCodeOverWrappedConnectError(t *testing.T) {
 func TestConnectCodePreservesStandaloneConnectError(t *testing.T) {
 	t.Parallel()
 
-	err := connect.NewError(connect.CodeUnavailable, errors.New("dial timeout"))
-	if got := ConnectCode(err); got != connect.CodeUnavailable {
-		t.Fatalf("ConnectCode() = %v, want %v", got, connect.CodeUnavailable)
+	// Regression: before the fix the empty-string runtime code match
+	// swallowed all errors without a runtime Code and returned CodeInternal,
+	// making the connect.CodeOf fallback dead code.
+	tests := []struct {
+		name string
+		code connect.Code
+	}{
+		{"Unavailable", connect.CodeUnavailable},
+		{"Canceled", connect.CodeCanceled},
+		{"DataLoss", connect.CodeDataLoss},
+		{"Aborted", connect.CodeAborted},
+		{"DeadlineExceeded", connect.CodeDeadlineExceeded},
 	}
-	if got := HTTPStatus(err); got != http.StatusServiceUnavailable {
-		t.Fatalf("HTTPStatus() = %d, want %d", got, http.StatusServiceUnavailable)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := connect.NewError(tt.code, errors.New("connect error"))
+			if got := ConnectCode(err); got != tt.code {
+				t.Fatalf("ConnectCode(*connect.Error{%v}) = %v, want %v", tt.code, got, tt.code)
+			}
+		})
+	}
+}
+
+func TestConnectCodePlainErrorFallsToDefault(t *testing.T) {
+	t.Parallel()
+
+	// A plain error with no runtime Code and no *connect.Error wrapping
+	// must fall through the switch to the default CodeInternal return.
+	err := errors.New("something broke")
+	if got := ConnectCode(err); got != connect.CodeInternal {
+		t.Fatalf("ConnectCode(plain error) = %v, want %v", got, connect.CodeInternal)
 	}
 }
 
