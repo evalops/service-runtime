@@ -20,6 +20,7 @@ const (
 	defaultClientServerName  = ""
 )
 
+// Config defines the environment-driven settings for the governance hook binary.
 type Config struct {
 	GovernanceURL        string
 	ApprovalsURL         string
@@ -34,6 +35,7 @@ type Config struct {
 	TLS                  mtls.ClientConfig
 }
 
+// LoadConfigFromEnv reads governance hook configuration from environment variables.
 func LoadConfigFromEnv() (Config, error) {
 	cfg := Config{
 		GovernanceURL:        normalizeServiceURL(trimEnv("EVALOPS_GOVERNANCE_URL"), governanceServiceSuffixes),
@@ -56,6 +58,7 @@ func LoadConfigFromEnv() (Config, error) {
 	return cfg, cfg.Validate()
 }
 
+// Validate reports missing or invalid hook configuration.
 func (cfg Config) Validate() error {
 	switch {
 	case strings.TrimSpace(cfg.GovernanceURL) == "":
@@ -74,6 +77,7 @@ func (cfg Config) Validate() error {
 	return nil
 }
 
+// HTTPClient builds the outbound client used for governance and approvals requests.
 func (cfg Config) HTTPClient() (*http.Client, error) {
 	return mtls.BuildHTTPClient(cfg.TLS)
 }

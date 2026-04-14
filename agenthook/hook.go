@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// ToolUseEvent is the generic PreToolUse envelope shared by Codex and Claude Code.
 type ToolUseEvent struct {
 	ToolName  string          `json:"tool_name"`
 	ToolInput json.RawMessage `json:"tool_input,omitempty"`
@@ -16,11 +17,13 @@ type ToolUseEvent struct {
 	Metadata  map[string]any  `json:"metadata,omitempty"`
 }
 
+// PermissionDecision is the deny payload emitted back to the hook runtime.
 type PermissionDecision struct {
 	PermissionDecision       string `json:"permissionDecision"`
 	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }
 
+// ParseToolUseEvent decodes a PreToolUse payload from Codex or Claude Code.
 func ParseToolUseEvent(data []byte) (ToolUseEvent, error) {
 	var event ToolUseEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -32,6 +35,7 @@ func ParseToolUseEvent(data []byte) (ToolUseEvent, error) {
 	return event, nil
 }
 
+// ActionPayload returns the normalized tool payload sent to governance and approvals.
 func (event ToolUseEvent) ActionPayload(raw []byte) []byte {
 	trimmed := bytes.TrimSpace(event.ToolInput)
 	if len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null")) {
@@ -40,6 +44,7 @@ func (event ToolUseEvent) ActionPayload(raw []byte) []byte {
 	return bytes.TrimSpace(raw)
 }
 
+// ResolvedAgentID resolves the effective agent identity from hook fields and fallback config.
 func (event ToolUseEvent) ResolvedAgentID(fallback string) string {
 	return firstNonEmpty(
 		event.AgentID,
@@ -52,6 +57,7 @@ func (event ToolUseEvent) ResolvedAgentID(fallback string) string {
 	)
 }
 
+// Surface resolves the logical calling surface for approval requests.
 func (event ToolUseEvent) Surface(fallback string) string {
 	return firstNonEmpty(
 		lookupString(event.Context, "surface"),
@@ -60,6 +66,7 @@ func (event ToolUseEvent) Surface(fallback string) string {
 	)
 }
 
+// ApprovalContextJSON builds the approval context document stored with the request.
 func (event ToolUseEvent) ApprovalContextJSON(raw []byte, reasons, matchedRules []string) string {
 	payload := map[string]any{
 		"governance_reasons": reasons,

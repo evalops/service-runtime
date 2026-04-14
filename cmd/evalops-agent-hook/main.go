@@ -11,6 +11,7 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	os.Exit(agenthook.Execute(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	code := agenthook.Execute(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }

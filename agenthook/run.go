@@ -17,15 +17,18 @@ import (
 	"github.com/evalops/proto/gen/go/governance/v1/governancev1connect"
 )
 
+// GovernanceClient captures the governance RPC used by the hook runtime.
 type GovernanceClient interface {
 	EvaluateAction(context.Context, *connect.Request[governancev1.EvaluateActionRequest]) (*connect.Response[governancev1.EvaluateActionResponse], error)
 }
 
+// ApprovalClient captures the approvals RPCs used by the hook runtime.
 type ApprovalClient interface {
 	RequestApproval(context.Context, *connect.Request[approvalsv1.RequestApprovalRequest]) (*connect.Response[approvalsv1.RequestApprovalResponse], error)
 	GetApproval(context.Context, *connect.Request[approvalsv1.GetApprovalRequest]) (*connect.Response[approvalsv1.GetApprovalResponse], error)
 }
 
+// Runner executes governance checks for incoming PreToolUse payloads.
 type Runner struct {
 	Config     Config
 	Governance GovernanceClient
@@ -33,6 +36,7 @@ type Runner struct {
 	Sleep      func(context.Context, time.Duration) error
 }
 
+// NewRunner builds a governance hook runner with ConnectRPC clients.
 func NewRunner(cfg Config) (*Runner, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -53,6 +57,7 @@ func NewRunner(cfg Config) (*Runner, error) {
 	return runner, nil
 }
 
+// Execute runs the CLI entrypoint and returns the process exit code.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) != 1 || args[0] != "governance-check" {
 		_, _ = fmt.Fprintln(stderr, "usage: evalops-agent-hook governance-check")
@@ -81,6 +86,7 @@ func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	return encodeDecision(stdout, stderr, decision)
 }
 
+// GovernanceCheck evaluates a PreToolUse payload and returns a deny decision when execution must stop.
 func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*PermissionDecision, error) {
 	if runner == nil || runner.Governance == nil {
 		return nil, errors.New("governance client is required")
