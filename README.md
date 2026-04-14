@@ -334,6 +334,28 @@ Use this package when a service wants the shared `Idempotency-Key` behavior,
 request hashing, replay handling, and Postgres storage contract instead of
 re-implementing those transport semantics per service.
 
+### `ratelimit`
+
+Helpers for request-rate enforcement with shared in-memory and Redis-backed
+token buckets.
+
+Main entry points:
+
+- `ratelimit.New(config)`
+- `limiter.Middleware(next)`
+- `limiter.Allow(key)`
+- `limiter.AllowContext(ctx, key)`
+
+Supporting types:
+
+- `ratelimit.Config`
+- `ratelimit.Policy`
+
+Use this package when a service wants one shared rate-limiting middleware with
+default IP-based keys, route or scope partitioning, Redis-backed coordination
+across replicas, and service-scoped Prometheus counters instead of rebuilding
+those transport safeguards per repo.
+
 ### `natsbus`
 
 Helpers for publishing service change events to NATS JetStream with a shared
@@ -559,6 +581,7 @@ When adding new shared helpers here:
 startup/       Retry primitives
 postgres/      database/sql PostgreSQL bootstrap
 redisutil/     Redis bootstrap
+ratelimit/     HTTP rate limiting middleware
 pgxpoolutil/   pgxpool bootstrap
 mtls/          Shared mTLS client/server helpers
 identityclient/ Shared Identity introspection client

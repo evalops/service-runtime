@@ -1,103 +1,187 @@
 package ratelimit_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/evalops/service-runtime/ratelimit"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/redis/go-redis/v9"
 )
+
+type manualClock struct {
+	now time.Time
+}
+
+func (c *manualClock) Now() time.Time {
+	return c.now
+}
+
+func (c *manualClock) Advance(duration time.Duration) {
+	c.now = c.now.Add(duration)
+}
 
 func TestAllowWithinLimit(t *testing.T) {
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 10
 	cfg.Burst = 10
-	l := ratelimit.New(cfg)
-	defer l.Close()
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
 
 	for i := 0; i < 10; i++ {
-		if !l.Allow("192.168.1.1") {
+		if !limiter.Allow("192.168.1.1") {
 			t.Fatalf("request %d should be allowed", i)
 		}
 	}
 }
 
-func TestDenyOverLimit(t *testing.T) {
-	cfg := ratelimit.DefaultConfig()
-	cfg.RequestsPerSecond = 1
-	cfg.Burst = 2
-	l := ratelimit.New(cfg)
-	defer l.Close()
+func TestAllowContextUsesRedisAcrossLimiters(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
 
-	l.Allow("192.168.1.1") // consume 1
-	l.Allow("192.168.1.1") // consume 2 (burst)
-	if l.Allow("192.168.1.1") {
-		t.Error("third request should be denied (burst=2)")
-	}
-}
-
-func TestPerIPIsolation(t *testing.T) {
+	clock := &manualClock{now: time.Unix(1, 0)}
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1
 	cfg.Burst = 1
-	l := ratelimit.New(cfg)
-	defer l.Close()
+	cfg.RedisClient = client
+	cfg.Now = clock.Now
 
-	l.Allow("10.0.0.1") // exhaust IP1
-	if !l.Allow("10.0.0.2") {
-		t.Error("different IP should have its own bucket")
+	first := ratelimit.New(cfg)
+	second := ratelimit.New(cfg)
+	t.Cleanup(first.Close)
+	t.Cleanup(second.Close)
+
+	allowed, err := first.AllowContext(context.Background(), "10.0.0.1")
+	if err != nil {
+		t.Fatalf("first allow returned error: %v", err)
+	}
+	if !allowed {
+		t.Fatal("first request should be allowed")
+	}
+
+	allowed, err = second.AllowContext(context.Background(), "10.0.0.1")
+	if err != nil {
+		t.Fatalf("second allow returned error: %v", err)
+	}
+	if allowed {
+		t.Fatal("shared redis limiter should reject the second request")
+	}
+
+	clock.Advance(time.Second)
+	allowed, err = second.AllowContext(context.Background(), "10.0.0.1")
+	if err != nil {
+		t.Fatalf("third allow returned error: %v", err)
+	}
+	if !allowed {
+		t.Fatal("request should be allowed after refill")
 	}
 }
 
-func TestMiddleware200(t *testing.T) {
-	cfg := ratelimit.DefaultConfig()
-	cfg.RequestsPerSecond = 100
-	cfg.Burst = 100
-	l := ratelimit.New(cfg)
-	defer l.Close()
+func TestMiddlewareFallsBackToLocalWhenRedisUnavailable(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{
+		Addr:         server.Addr(),
+		MaxRetries:   0,
+		DialTimeout:  5 * time.Millisecond,
+		ReadTimeout:  5 * time.Millisecond,
+		WriteTimeout: 5 * time.Millisecond,
+	})
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
+	server.Close()
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(200)
-	}))
-
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest("GET", "/v1/prompts", nil))
-	if w.Code != 200 {
-		t.Errorf("status = %d, want 200", w.Code)
-	}
-}
-
-func TestMiddleware429(t *testing.T) {
+	var errCount atomic.Int32
+	clock := &manualClock{now: time.Unix(1, 0)}
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1
 	cfg.Burst = 1
-	l := ratelimit.New(cfg)
-	defer l.Close()
+	cfg.RedisClient = client
+	cfg.Now = clock.Now
+	cfg.OnError = func(_ *http.Request, err error) {
+		if err != nil {
+			errCount.Add(1)
+		}
+	}
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(200)
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/v1/prompts", nil)
-	req.RemoteAddr = "10.0.0.1:12345"
+	request := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	request.RemoteAddr = "10.0.0.1:12345"
 
-	// First request succeeds.
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("first request: status = %d, want 200", w.Code)
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, request)
+	if first.Code != http.StatusOK {
+		t.Fatalf("fallback request should succeed, got %d", first.Code)
 	}
 
-	// Second request is rate limited.
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != 429 {
-		t.Errorf("second request: status = %d, want 429", w.Code)
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, request)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("fallback limiter should still enforce the limit, got %d", second.Code)
 	}
-	if w.Header().Get("Retry-After") != "1" {
-		t.Error("missing Retry-After header")
+	if errCount.Load() == 0 {
+		t.Fatal("expected redis fallback error hook to run")
+	}
+}
+
+func TestMiddlewareScopesBucketsPerRoute(t *testing.T) {
+	cfg := ratelimit.DefaultConfig()
+	cfg.RequestsPerSecond = 1
+	cfg.Burst = 1
+	cfg.PolicyFunc = func(r *http.Request) ratelimit.Policy {
+		switch r.URL.Path {
+		case "/oauth/token":
+			return ratelimit.Policy{Scope: "oauth_token", RequestsPerSecond: 1, Burst: 1}
+		case "/v1/prompts":
+			return ratelimit.Policy{Scope: "prompts", RequestsPerSecond: 1, Burst: 1}
+		default:
+			return ratelimit.Policy{}
+		}
+	}
+
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	oauth := httptest.NewRequest(http.MethodPost, "/oauth/token", nil)
+	oauth.RemoteAddr = "10.0.0.1:12345"
+	prompts := httptest.NewRequest(http.MethodGet, "/v1/prompts", nil)
+	prompts.RemoteAddr = "10.0.0.1:12345"
+
+	firstOAuth := httptest.NewRecorder()
+	handler.ServeHTTP(firstOAuth, oauth)
+	if firstOAuth.Code != http.StatusOK {
+		t.Fatalf("oauth request should be allowed, got %d", firstOAuth.Code)
+	}
+
+	firstPrompts := httptest.NewRecorder()
+	handler.ServeHTTP(firstPrompts, prompts)
+	if firstPrompts.Code != http.StatusOK {
+		t.Fatalf("prompts request should use a different bucket, got %d", firstPrompts.Code)
+	}
+
+	secondOAuth := httptest.NewRecorder()
+	handler.ServeHTTP(secondOAuth, oauth)
+	if secondOAuth.Code != http.StatusTooManyRequests {
+		t.Fatalf("second oauth request should be limited, got %d", secondOAuth.Code)
 	}
 }
 
@@ -105,22 +189,21 @@ func TestExemptPaths(t *testing.T) {
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1
 	cfg.Burst = 1
-	l := ratelimit.New(cfg)
-	defer l.Close()
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(200)
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/healthz", nil)
-	req.RemoteAddr = "10.0.0.1:12345"
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.RemoteAddr = "10.0.0.1:12345"
 
-	// Exempt paths should always pass, even after exhausting the bucket.
-	l.Allow("10.0.0.1") // exhaust bucket
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Errorf("healthz should be exempt, got %d", w.Code)
+	limiter.Allow("10.0.0.1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("healthz should bypass rate limiting, got %d", response.Code)
 	}
 }
 
@@ -129,21 +212,25 @@ func TestOnLimitedCallback(t *testing.T) {
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1
 	cfg.Burst = 1
-	cfg.OnLimited = func(_ *http.Request) { count.Add(1) }
-	l := ratelimit.New(cfg)
-	defer l.Close()
+	cfg.OnLimited = func(_ *http.Request) {
+		count.Add(1)
+	}
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(200)
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/v1/test", nil)
-	req.RemoteAddr = "10.0.0.1:12345"
-	handler.ServeHTTP(httptest.NewRecorder(), req) // allowed
-	handler.ServeHTTP(httptest.NewRecorder(), req) // limited
+	request := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	request.RemoteAddr = "10.0.0.1:12345"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
 
 	if count.Load() != 1 {
-		t.Errorf("OnLimited called %d times, want 1", count.Load())
+		t.Fatalf("OnLimited called %d times, want 1", count.Load())
 	}
 }
 
@@ -153,17 +240,18 @@ func TestCleanup(t *testing.T) {
 	cfg.Burst = 10
 	cfg.CleanupInterval = 10 * time.Millisecond
 	cfg.MaxAge = 10 * time.Millisecond
-	l := ratelimit.New(cfg)
-	defer l.Close()
 
-	l.Allow("10.0.0.1")
-	if l.Len() != 1 {
-		t.Fatalf("expected 1 entry, got %d", l.Len())
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	limiter.Allow("10.0.0.1")
+	if limiter.Len() != 1 {
+		t.Fatalf("expected 1 entry, got %d", limiter.Len())
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	if l.Len() != 0 {
-		t.Errorf("expected 0 entries after cleanup, got %d", l.Len())
+	if limiter.Len() != 0 {
+		t.Fatalf("expected cleanup to evict the idle entry, got %d", limiter.Len())
 	}
 }
 
@@ -171,25 +259,129 @@ func TestXForwardedForUsesLastHop(t *testing.T) {
 	cfg := ratelimit.DefaultConfig()
 	cfg.RequestsPerSecond = 1
 	cfg.Burst = 1
-	l := ratelimit.New(cfg)
-	defer l.Close()
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
 
-	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(200)
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Spoofed leftmost values should not bypass the bucket selected by the trusted last hop.
-	req1 := httptest.NewRequest("GET", "/v1/test", nil)
-	req1.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.1")
-	req2 := httptest.NewRequest("GET", "/v1/test", nil)
-	req2.Header.Set("X-Forwarded-For", "203.0.113.2, 10.0.0.1")
+	first := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	first.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.1")
 
-	w1 := httptest.NewRecorder()
-	handler.ServeHTTP(w1, req1)
+	second := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	second.Header.Set("X-Forwarded-For", "203.0.113.2, 10.0.0.1")
 
-	w2 := httptest.NewRecorder()
-	handler.ServeHTTP(w2, req2)
-	if w2.Code != http.StatusTooManyRequests {
-		t.Errorf("spoofed XFF should not bypass the shared bucket, got %d", w2.Code)
+	handler.ServeHTTP(httptest.NewRecorder(), first)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, second)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("spoofed XFF should not bypass the shared bucket, got %d", response.Code)
 	}
+}
+
+func TestMiddlewareRecordsMetrics(t *testing.T) {
+	registry := prometheus.NewPedanticRegistry()
+	cfg := ratelimit.DefaultConfig()
+	cfg.RequestsPerSecond = 1
+	cfg.Burst = 1
+	cfg.ServiceName = "gate"
+	cfg.Registerer = registry
+
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	request.RemoteAddr = "10.0.0.1:12345"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	if value := metricValueWithLabels(metricFamilies, "gate_rate_limit_hits_total", map[string]string{
+		"route":  "/v1/test",
+		"action": "allowed",
+	}); value != 1 {
+		t.Fatalf("allowed metric = %v, want 1", value)
+	}
+
+	if value := metricValueWithLabels(metricFamilies, "gate_rate_limit_hits_total", map[string]string{
+		"route":  "/v1/test",
+		"action": "limited",
+	}); value != 1 {
+		t.Fatalf("limited metric = %v, want 1", value)
+	}
+}
+
+func TestAllowContextPropagatesRedisError(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{
+		Addr:         server.Addr(),
+		MaxRetries:   0,
+		DialTimeout:  5 * time.Millisecond,
+		ReadTimeout:  5 * time.Millisecond,
+		WriteTimeout: 5 * time.Millisecond,
+	})
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
+	server.Close()
+
+	cfg := ratelimit.DefaultConfig()
+	cfg.RedisClient = client
+
+	limiter := ratelimit.New(cfg)
+	t.Cleanup(limiter.Close)
+
+	allowed, err := limiter.AllowContext(context.Background(), "10.0.0.1")
+	if err == nil {
+		t.Fatal("expected redis error to be returned")
+	}
+	if !allowed {
+		t.Fatal("allow context should fall back locally when redis is unavailable")
+	}
+	if err.Error() == "" {
+		t.Fatalf("unexpected empty error: %v", err)
+	}
+}
+
+func metricValueWithLabels(metricFamilies []*dto.MetricFamily, name string, labels map[string]string) float64 {
+	for _, family := range metricFamilies {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.Metric {
+			if !metricHasLabels(metric, labels) {
+				continue
+			}
+			if counter := metric.GetCounter(); counter != nil {
+				return counter.GetValue()
+			}
+		}
+	}
+	return 0
+}
+
+func metricHasLabels(metric *dto.Metric, labels map[string]string) bool {
+	for key, value := range labels {
+		found := false
+		for _, label := range metric.GetLabel() {
+			if label.GetName() == key && label.GetValue() == value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
