@@ -55,6 +55,23 @@ func TestConnectCodeAndHTTPStatus(t *testing.T) {
 	}
 }
 
+func TestConnectCodePrefersRuntimeCodeOverWrappedConnectError(t *testing.T) {
+	t.Parallel()
+
+	err := E(
+		CodeNotFound,
+		"load_policy",
+		"policy missing",
+		connect.NewError(connect.CodeUnavailable, errors.New("dial timeout")),
+	)
+	if got := ConnectCode(err); got != connect.CodeNotFound {
+		t.Fatalf("ConnectCode() = %v, want %v", got, connect.CodeNotFound)
+	}
+	if got := HTTPStatus(err); got != http.StatusNotFound {
+		t.Fatalf("HTTPStatus() = %d, want %d", got, http.StatusNotFound)
+	}
+}
+
 func TestToConnectErrorPreservesExistingConnectErrors(t *testing.T) {
 	t.Parallel()
 

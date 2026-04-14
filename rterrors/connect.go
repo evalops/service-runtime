@@ -8,10 +8,6 @@ func ConnectCode(err error) connect.Code {
 		return connect.CodeUnknown
 	}
 
-	if code := connect.CodeOf(err); code != connect.CodeUnknown {
-		return code
-	}
-
 	switch CodeOf(err) {
 	case CodeInvalidInput, CodeInvalidJSON:
 		return connect.CodeInvalidArgument
@@ -31,9 +27,12 @@ func ConnectCode(err error) connect.Code {
 		return connect.CodeUnavailable
 	case CodeInternal, "":
 		return connect.CodeInternal
-	default:
-		return connect.CodeInternal
 	}
+
+	if code := connect.CodeOf(err); code != connect.CodeUnknown {
+		return code
+	}
+	return connect.CodeInternal
 }
 
 // ToConnectError converts an error into a Connect error while preserving existing Connect errors.
