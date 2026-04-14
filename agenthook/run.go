@@ -257,7 +257,8 @@ func decisionFromApproval(state string, decision *approvalsv1.ApprovalDecision) 
 	}
 
 	switch decision.GetDecision() {
-	case approvalsv1.DecisionType_DECISION_TYPE_APPROVED:
+	case approvalsv1.DecisionType_DECISION_TYPE_APPROVED,
+		approvalsv1.DecisionType_DECISION_TYPE_AUTO_APPROVED:
 		return nil
 	case approvalsv1.DecisionType_DECISION_TYPE_DENIED:
 		return denyDecision(firstNonEmpty(decision.GetReason(), "approval denied"))
