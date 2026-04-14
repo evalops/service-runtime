@@ -257,6 +257,33 @@ The file store keeps the last good snapshot in memory and lazily reloads on a
 poll interval, which is enough for ConfigMap-backed runtime toggles without
 forcing each service to hand-roll its own watcher logic.
 
+### `health`
+
+Helpers for dependency-aware readiness checks with shared caching defaults.
+
+Main entry points:
+
+- `health.New()`
+- `(*health.Checker).Add(name, check)`
+- `(*health.Checker).Check(ctx, timeout)`
+- `(*health.Checker).CachedCheck(ctx, timeout, ttl)`
+- `(*health.Checker).Handler(timeout)`
+- `(*health.Checker).CachedHandler(timeout, ttl)`
+- `(*health.Checker).ReadyzHandler()`
+- `health.PostgresCheck(db)`
+- `redischeck.Check(client)`
+- `natscheck.Check(conn)`
+- `health.HTTPCheck(client, url)`
+- `health.PingCheck(pinger)`
+- `health.TCPCheck(addr)`
+
+Use this package when a service needs `/readyz` to reflect real downstream
+dependency state instead of a hardcoded success response. The shared
+`ReadyzHandler` caches readiness reports for 5 seconds and uses a 2-second
+timeout per probe so Kubernetes does not hammer dependencies on every poll.
+Redis and NATS adapters live in `health/redischeck` and `health/natscheck` so
+generic health consumers do not inherit those dependencies by default.
+
 - `httpkit.WriteJSON(writer, status, value)`
 - `httpkit.WriteError(writer, status, code, message)`
 - `httpkit.WriteMutationJSON(writer, status, payload, sequence)`

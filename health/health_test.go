@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,29 +15,29 @@ import (
 
 func TestEmptyChecker(t *testing.T) {
 	c := health.New()
-	r := c.Check(context.Background(), time.Second)
-	if !r.Healthy {
+	report := c.Check(context.Background(), time.Second)
+	if !report.Healthy {
 		t.Error("empty checker should be healthy")
 	}
-	if len(r.Checks) != 0 {
-		t.Errorf("expected 0 checks, got %d", len(r.Checks))
+	if len(report.Checks) != 0 {
+		t.Errorf("expected 0 checks, got %d", len(report.Checks))
 	}
 }
 
 func TestHealthyCheck(t *testing.T) {
 	c := health.New()
 	c.Add("db", func(_ context.Context) error { return nil })
-	r := c.Check(context.Background(), time.Second)
-	if !r.Healthy {
+	report := c.Check(context.Background(), time.Second)
+	if !report.Healthy {
 		t.Error("should be healthy")
 	}
-	if len(r.Checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(r.Checks))
+	if len(report.Checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(report.Checks))
 	}
-	if r.Checks[0].Name != "db" {
-		t.Errorf("name = %q, want %q", r.Checks[0].Name, "db")
+	if report.Checks[0].Name != "db" {
+		t.Errorf("name = %q, want %q", report.Checks[0].Name, "db")
 	}
-	if !r.Checks[0].Healthy {
+	if !report.Checks[0].Healthy {
 		t.Error("db check should be healthy")
 	}
 }
@@ -44,12 +45,12 @@ func TestHealthyCheck(t *testing.T) {
 func TestUnhealthyCheck(t *testing.T) {
 	c := health.New()
 	c.Add("db", func(_ context.Context) error { return errors.New("connection refused") })
-	r := c.Check(context.Background(), time.Second)
-	if r.Healthy {
+	report := c.Check(context.Background(), time.Second)
+	if report.Healthy {
 		t.Error("should be unhealthy")
 	}
-	if r.Checks[0].Error != "connection refused" {
-		t.Errorf("error = %q, want %q", r.Checks[0].Error, "connection refused")
+	if report.Checks[0].Error != "connection refused" {
+		t.Errorf("error = %q, want %q", report.Checks[0].Error, "connection refused")
 	}
 }
 
@@ -58,13 +59,13 @@ func TestMixedChecks(t *testing.T) {
 	c.Add("db", func(_ context.Context) error { return nil })
 	c.Add("redis", func(_ context.Context) error { return errors.New("timeout") })
 	c.Add("nats", func(_ context.Context) error { return nil })
-	r := c.Check(context.Background(), time.Second)
-	if r.Healthy {
+	report := c.Check(context.Background(), time.Second)
+	if report.Healthy {
 		t.Error("should be unhealthy when any check fails")
 	}
 	healthy := 0
-	for _, s := range r.Checks {
-		if s.Healthy {
+	for _, status := range report.Checks {
+		if status.Healthy {
 			healthy++
 		}
 	}
@@ -83,8 +84,8 @@ func TestTimeout(t *testing.T) {
 			return nil
 		}
 	})
-	r := c.Check(context.Background(), 50*time.Millisecond)
-	if r.Healthy {
+	report := c.Check(context.Background(), 50*time.Millisecond)
+	if report.Healthy {
 		t.Error("timed-out check should be unhealthy")
 	}
 }
@@ -92,14 +93,14 @@ func TestTimeout(t *testing.T) {
 func TestHandler200(t *testing.T) {
 	c := health.New()
 	c.Add("db", func(_ context.Context) error { return nil })
-	w := httptest.NewRecorder()
-	c.Handler(time.Second).ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
+	recorder := httptest.NewRecorder()
+	c.Handler(time.Second).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if recorder.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", recorder.Code)
 	}
-	var r health.Report
-	_ = json.NewDecoder(w.Body).Decode(&r)
-	if !r.Healthy {
+	var report health.Report
+	_ = json.NewDecoder(recorder.Body).Decode(&report)
+	if !report.Healthy {
 		t.Error("report should be healthy")
 	}
 }
@@ -107,10 +108,93 @@ func TestHandler200(t *testing.T) {
 func TestHandler503(t *testing.T) {
 	c := health.New()
 	c.Add("db", func(_ context.Context) error { return errors.New("down") })
-	w := httptest.NewRecorder()
-	c.Handler(time.Second).ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", w.Code)
+	recorder := httptest.NewRecorder()
+	c.Handler(time.Second).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", recorder.Code)
+	}
+}
+
+func TestCachedCheckReusesRecentReport(t *testing.T) {
+	c := health.New()
+	var calls atomic.Int32
+	c.Add("db", func(_ context.Context) error {
+		calls.Add(1)
+		return nil
+	})
+
+	first := c.CachedCheck(context.Background(), time.Second, time.Minute)
+	second := c.CachedCheck(context.Background(), time.Second, time.Minute)
+	if !first.Healthy || !second.Healthy {
+		t.Fatal("expected cached reports to stay healthy")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected 1 check execution, got %d", calls.Load())
+	}
+}
+
+func TestCachedCheckRefreshesExpiredReport(t *testing.T) {
+	c := health.New()
+	var calls atomic.Int32
+	c.Add("db", func(_ context.Context) error {
+		calls.Add(1)
+		return nil
+	})
+
+	c.CachedCheck(context.Background(), time.Second, 10*time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+	c.CachedCheck(context.Background(), time.Second, 10*time.Millisecond)
+
+	if calls.Load() != 2 {
+		t.Fatalf("expected cached report to refresh after expiry, got %d executions", calls.Load())
+	}
+}
+
+func TestCachedCheckIgnoresRequestCancellation(t *testing.T) {
+	c := health.New()
+	c.Add("db", func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	report := c.CachedCheck(ctx, time.Second, time.Minute)
+	if !report.Healthy {
+		t.Fatalf("expected cached readiness to ignore request cancellation, got %+v", report)
+	}
+
+	cached := c.CachedCheck(context.Background(), time.Second, time.Minute)
+	if !cached.Healthy {
+		t.Fatalf("expected healthy cached report, got %+v", cached)
+	}
+}
+
+func TestReadyzHandlerUsesCachedDefaults(t *testing.T) {
+	c := health.New()
+	var calls atomic.Int32
+	c.Add("db", func(_ context.Context) error {
+		calls.Add(1)
+		return nil
+	})
+
+	handler := c.ReadyzHandler()
+	first := httptest.NewRecorder()
+	second := httptest.NewRecorder()
+
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+
+	if first.Code != http.StatusOK || second.Code != http.StatusOK {
+		t.Fatalf("expected readiness handler to return 200, got %d and %d", first.Code, second.Code)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected readyz cache to reuse the first report, got %d executions", calls.Load())
 	}
 }
 
@@ -119,14 +203,52 @@ type mockPinger struct{ err error }
 func (m *mockPinger) Ping(_ context.Context) error { return m.err }
 
 func TestPingCheck(t *testing.T) {
-	fn := health.PingCheck(&mockPinger{err: nil})
-	if err := fn(context.Background()); err != nil {
+	check := health.PingCheck(&mockPinger{err: nil})
+	if err := check(context.Background()); err != nil {
 		t.Errorf("healthy ping returned error: %v", err)
 	}
 
-	fn = health.PingCheck(&mockPinger{err: errors.New("refused")})
-	if err := fn(context.Background()); err == nil {
+	check = health.PingCheck(&mockPinger{err: errors.New("refused")})
+	if err := check(context.Background()); err == nil {
 		t.Error("unhealthy ping should return error")
+	}
+}
+
+type mockContextPinger struct{ err error }
+
+func (m *mockContextPinger) PingContext(_ context.Context) error { return m.err }
+
+func TestPostgresCheck(t *testing.T) {
+	check := health.PostgresCheck(&mockContextPinger{})
+	if err := check(context.Background()); err != nil {
+		t.Fatalf("healthy postgres ping returned error: %v", err)
+	}
+
+	check = health.PostgresCheck(&mockContextPinger{err: errors.New("db down")})
+	if err := check(context.Background()); err == nil {
+		t.Fatal("expected postgres check to report unhealthy dependency")
+	}
+}
+
+func TestHTTPCheck(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	check := health.HTTPCheck(server.Client(), server.URL)
+	if err := check(context.Background()); err != nil {
+		t.Fatalf("healthy http check returned error: %v", err)
+	}
+
+	unhealthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer unhealthy.Close()
+
+	check = health.HTTPCheck(unhealthy.Client(), unhealthy.URL)
+	if err := check(context.Background()); err == nil {
+		t.Fatal("expected http check to reject non-2xx response")
 	}
 }
 
