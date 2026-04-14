@@ -13,9 +13,9 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/go-chi/chi/v5"
 	"github.com/evalops/service-runtime/rterrors"
 	"github.com/evalops/service-runtime/testutil"
+	"github.com/go-chi/chi/v5"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	tracetest "go.opentelemetry.io/otel/sdk/trace/tracetest"
