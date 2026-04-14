@@ -114,10 +114,7 @@ func redisCommandName(cmd goredis.Cmder) string {
 	return strings.ToLower(name)
 }
 
-func redisPipelineName(cmds []goredis.Cmder) string {
-	if len(cmds) == 0 {
-		return "pipeline"
-	}
+func redisPipelineName(_ []goredis.Cmder) string {
 	return "pipeline"
 }
 

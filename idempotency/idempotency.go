@@ -93,7 +93,8 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 			_ = request.Body.Close()
 			request.Body = io.NopCloser(bytes.NewReader(body))
 
-			now := opts.Now().UTC()
+			now := opts.Now()
+			cleanupNow := now.UTC()
 
 			lastCleanupMu.Lock()
 			shouldCleanup := lastCleanup.IsZero() || now.Sub(lastCleanup) >= opts.CleanupInterval
@@ -102,13 +103,13 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 			}
 			lastCleanupMu.Unlock()
 			if shouldCleanup {
-				if err := store.Cleanup(request.Context(), now); err != nil {
+				if err := store.Cleanup(request.Context(), cleanupNow); err != nil {
 					opts.Logger.Warn("idempotency cleanup failed", "error", err)
 				}
 			}
 
 			hash := RequestHash(request.Method, request.URL.Path, body)
-			replay, err := store.Begin(request.Context(), scope, key, hash, opts.TTL, now)
+			replay, err := store.Begin(request.Context(), scope, key, hash, opts.TTL, cleanupNow)
 			switch {
 			case err == nil:
 			case errors.Is(err, ErrConflict):
