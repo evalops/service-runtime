@@ -195,6 +195,19 @@ func TestWriteStoreError(t *testing.T) {
 	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeNotFound)
 }
 
+func TestWriteStoreErrorPreservesDefaultMessage(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	WriteStoreError(recorder, errors.New("db down"), StoreErrors{})
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, recorder.Code)
+	}
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), ErrorCodeInternal)
+	assertErrorMessage(t, recorder.Body.Bytes(), "db down")
+}
+
 func TestWriteMappedError(t *testing.T) {
 	t.Parallel()
 
@@ -228,6 +241,17 @@ func TestRecoverMiddleware(t *testing.T) {
 	}
 }
 
+func assertErrorMessage(t *testing.T, raw []byte, expected string) {
+	t.Helper()
+
+	var response ErrorResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Error.Message != expected {
+		t.Fatalf("expected error message %q, got %q", expected, response.Error.Message)
+	}
+}
 type versionedValue struct {
 	Version int64 `json:"version"`
 }

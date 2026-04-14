@@ -17,15 +17,10 @@ const (
 )
 
 // ErrorResponse is the JSON body shape for all error responses.
-type ErrorResponse struct {
-	Error ErrorDetail `json:"error"`
-}
+type ErrorResponse = rterrors.ErrorResponse
 
 // ErrorDetail carries the error code and human-readable message.
-type ErrorDetail struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+type ErrorDetail = rterrors.ErrorDetail
 
 // StoreErrors maps domain store sentinel errors to HTTP status codes.
 type StoreErrors struct {
@@ -59,6 +54,6 @@ func WriteStoreError(writer http.ResponseWriter, err error, storeErrors StoreErr
 	case storeErrors.Conflict != nil && errors.Is(err, storeErrors.Conflict):
 		WriteMappedError(writer, rterrors.E(rterrors.CodeConflict, "store.write", err.Error(), err))
 	default:
-		WriteMappedError(writer, rterrors.Wrap(rterrors.CodeInternal, "store.write", err))
+		WriteMappedError(writer, rterrors.E(rterrors.CodeInternal, "store.write", err.Error(), err))
 	}
 }
