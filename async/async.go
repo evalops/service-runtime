@@ -48,5 +48,10 @@ func FireAndForget(ctx context.Context, logger *slog.Logger, op string, task Tas
 //	    return err
 //	})
 func CloneProto[T proto.Message](msg T) T {
-	return proto.Clone(msg).(T)
+	cloned, ok := proto.Clone(msg).(T)
+	if !ok {
+		var zero T
+		return zero
+	}
+	return cloned
 }
