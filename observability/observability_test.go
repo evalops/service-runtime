@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 func TestNewMetricsUsesServiceScopedNames(t *testing.T) {
@@ -66,6 +67,49 @@ func TestRegisterDBStatsRegistersGaugesOnce(t *testing.T) {
 
 	if !containsMetric(metricFamilies, "pipeline_db_open_connections") {
 		t.Fatalf("expected pipeline_db_open_connections metric")
+	}
+}
+
+func TestRegisterRedisPoolStatsRegistersCollectorsOnce(t *testing.T) {
+	t.Parallel()
+
+	registry := prometheus.NewRegistry()
+	stats := &goredis.PoolStats{
+		Hits:            11,
+		Misses:          2,
+		Timeouts:        1,
+		WaitCount:       3,
+		Unusable:        4,
+		WaitDurationNs:  2 * int64(1e9),
+		TotalConns:      5,
+		IdleConns:       2,
+		StaleConns:      6,
+		PendingRequests: 1,
+	}
+
+	if err := RegisterRedisPoolStats("pipeline", func() *goredis.PoolStats { return stats }, RedisStatsOptions{Registerer: registry}); err != nil {
+		t.Fatalf("register redis stats: %v", err)
+	}
+	if err := RegisterRedisPoolStats("pipeline", func() *goredis.PoolStats { return stats }, RedisStatsOptions{Registerer: registry}); err != nil {
+		t.Fatalf("repeat register redis stats: %v", err)
+	}
+
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather redis stats: %v", err)
+	}
+
+	if !containsMetric(metricFamilies, "pipeline_redis_pool_total_connections") {
+		t.Fatalf("expected pipeline_redis_pool_total_connections metric")
+	}
+	if !containsMetric(metricFamilies, "pipeline_redis_pool_hits_total") {
+		t.Fatalf("expected pipeline_redis_pool_hits_total metric")
+	}
+	if got := metricValue(metricFamilies, "pipeline_redis_pool_pending_requests"); got != 1 {
+		t.Fatalf("pending requests = %v, want 1", got)
+	}
+	if got := metricValue(metricFamilies, "pipeline_redis_pool_wait_duration_seconds_total"); got != 2 {
+		t.Fatalf("wait duration seconds = %v, want 2", got)
 	}
 }
 
@@ -195,4 +239,19 @@ func containsMetric(metricFamilies []*dto.MetricFamily, name string) bool {
 		}
 	}
 	return false
+}
+
+func metricValue(metricFamilies []*dto.MetricFamily, name string) float64 {
+	for _, family := range metricFamilies {
+		if family.GetName() != name || len(family.Metric) == 0 {
+			continue
+		}
+		switch family.GetType() {
+		case dto.MetricType_COUNTER:
+			return family.Metric[0].GetCounter().GetValue()
+		case dto.MetricType_GAUGE:
+			return family.Metric[0].GetGauge().GetValue()
+		}
+	}
+	return 0
 }
