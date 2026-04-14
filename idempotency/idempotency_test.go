@@ -413,7 +413,6 @@ func (store *fakeStore) Complete(_ context.Context, scope, key string, result Re
 }
 
 type countingStore struct {
-	inner        Store
 	cleanupCount atomic.Int32
 	cleanupErr   error
 }

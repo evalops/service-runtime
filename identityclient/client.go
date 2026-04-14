@@ -561,7 +561,11 @@ func (c *lruCache[K, V]) Get(key K) (V, bool) {
 		return zero, false
 	}
 	c.order.MoveToFront(elem)
-	entry := elem.Value.(*lruEntry[K, V]) // only Put inserts entries
+	entry, ok := elem.Value.(*lruEntry[K, V]) // only Put inserts entries
+	if !ok {
+		var zero V
+		return zero, false
+	}
 	return entry.value, true
 }
 
@@ -569,7 +573,11 @@ func (c *lruCache[K, V]) Get(key K) (V, bool) {
 // maxSize, the least recently used entry is evicted.
 func (c *lruCache[K, V]) Put(key K, value V) {
 	if elem, ok := c.items[key]; ok {
-		entry := elem.Value.(*lruEntry[K, V]) // only Put inserts entries
+		entry, ok := elem.Value.(*lruEntry[K, V]) // only Put inserts entries
+		if !ok {
+			entry = &lruEntry[K, V]{key: key}
+			elem.Value = entry
+		}
 		entry.value = value
 		c.order.MoveToFront(elem)
 		return
@@ -581,8 +589,10 @@ func (c *lruCache[K, V]) Put(key K, value V) {
 	if c.order.Len() > c.maxSize {
 		back := c.order.Back()
 		if back != nil {
-			evicted := c.order.Remove(back).(*lruEntry[K, V]) // only Put inserts entries
-			delete(c.items, evicted.key)
+			if evicted, ok := back.Value.(*lruEntry[K, V]); ok {
+				delete(c.items, evicted.key)
+			}
+			c.order.Remove(back)
 		}
 	}
 }
@@ -613,7 +623,10 @@ func (c *lruCache[K, V]) DeleteFunc(fn func(K, V) bool) {
 	var next *list.Element
 	for elem := c.order.Front(); elem != nil; elem = next {
 		next = elem.Next()
-		entry := elem.Value.(*lruEntry[K, V])
+		entry, ok := elem.Value.(*lruEntry[K, V])
+		if !ok {
+			continue
+		}
 		if fn(entry.key, entry.value) {
 			c.order.Remove(elem)
 			delete(c.items, entry.key)
