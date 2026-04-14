@@ -2,13 +2,12 @@ package authmw
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/evalops/service-runtime/httpkit"
+	"github.com/evalops/service-runtime/testutil"
 )
 
 func TestWithAuthMissingHeader(t *testing.T) {
@@ -25,7 +24,7 @@ func TestWithAuthMissingHeader(t *testing.T) {
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
 	}
-	assertErrorCode(t, recorder.Body.Bytes(), "missing_authorization")
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), "missing_authorization")
 }
 
 func TestWithAuthAPIKey(t *testing.T) {
@@ -88,7 +87,7 @@ func TestWithAuthAPIKeyMissingScopes(t *testing.T) {
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
 	}
-	assertErrorCode(t, recorder.Body.Bytes(), "authorization_failed")
+	testutil.AssertErrorCode(t, recorder.Body.Bytes(), "authorization_failed")
 }
 
 func TestWithAuthAPIKeyWithoutValidator(t *testing.T) {
@@ -205,18 +204,6 @@ func TestHasAllScopes(t *testing.T) {
 	}
 	if HasAllScopes([]string{"a"}, []string{"a", "b"}) {
 		t.Fatal("expected scope check to fail")
-	}
-}
-
-func assertErrorCode(t *testing.T, raw []byte, expected string) {
-	t.Helper()
-
-	var response httpkit.ErrorResponse
-	if err := json.Unmarshal(raw, &response); err != nil {
-		t.Fatalf("decode error response: %v", err)
-	}
-	if response.Error.Code != expected {
-		t.Fatalf("expected error code %q, got %q", expected, response.Error.Code)
 	}
 }
 
