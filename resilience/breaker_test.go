@@ -76,8 +76,11 @@ func TestBreakerTransitionsToHalfOpenAfterTimeout(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	b := NewBreaker(BreakerConfig{FailureThreshold: 1, ResetTimeout: 50 * time.Millisecond})
-	b.timeNow = func() time.Time { return now }
+	b := NewBreaker(BreakerConfig{
+		FailureThreshold: 1,
+		ResetTimeout:     50 * time.Millisecond,
+		Clock:            func() time.Time { return now },
+	})
 
 	// Trip the breaker.
 	_ = b.Do(context.Background(), func(context.Context) error {
@@ -99,8 +102,11 @@ func TestBreakerClosesOnHalfOpenSuccess(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	b := NewBreaker(BreakerConfig{FailureThreshold: 1, ResetTimeout: 50 * time.Millisecond})
-	b.timeNow = func() time.Time { return now }
+	b := NewBreaker(BreakerConfig{
+		FailureThreshold: 1,
+		ResetTimeout:     50 * time.Millisecond,
+		Clock:            func() time.Time { return now },
+	})
 
 	// Trip the breaker.
 	_ = b.Do(context.Background(), func(context.Context) error {
@@ -126,8 +132,11 @@ func TestBreakerReopensOnHalfOpenFailure(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	b := NewBreaker(BreakerConfig{FailureThreshold: 1, ResetTimeout: 50 * time.Millisecond})
-	b.timeNow = func() time.Time { return now }
+	b := NewBreaker(BreakerConfig{
+		FailureThreshold: 1,
+		ResetTimeout:     50 * time.Millisecond,
+		Clock:            func() time.Time { return now },
+	})
 
 	// Trip the breaker.
 	_ = b.Do(context.Background(), func(context.Context) error {
@@ -225,7 +234,7 @@ func TestBreakerConcurrentAccess(t *testing.T) {
 		t.Fatalf("expected %d total calls, got %d", goroutines, total)
 	}
 
-	// State should be valid (no panics, no data races — the -race flag catches those).
+	// State should be valid (no panics, no data races -- the -race flag catches those).
 	state := b.State()
 	if state != StateClosed && state != StateOpen {
 		t.Fatalf("unexpected state %v after concurrent access", state)
@@ -255,6 +264,111 @@ func TestBreakerSuccessResetsFailureCount(t *testing.T) {
 	}
 	if b.State() != StateClosed {
 		t.Fatalf("expected Closed (counter should have reset on success), got %v", b.State())
+	}
+}
+
+func TestBreakerConcurrentHalfOpenProbes(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	b := NewBreaker(BreakerConfig{
+		FailureThreshold: 1,
+		ResetTimeout:     50 * time.Millisecond,
+		HalfOpenMax:      3,
+		Clock:            func() time.Time { return now },
+	})
+
+	// Trip the breaker.
+	_ = b.Do(context.Background(), func(context.Context) error {
+		return errors.New("fail")
+	})
+
+	// Advance past reset timeout to enter HalfOpen.
+	now = now.Add(100 * time.Millisecond)
+	if b.State() != StateHalfOpen {
+		t.Fatalf("expected HalfOpen, got %v", b.State())
+	}
+
+	// Launch multiple goroutines competing for probe slots. One succeeds,
+	// others fail. The success should close the breaker. Subsequent failures
+	// from probes that were already admitted must not corrupt the closed state.
+	const goroutines = 10
+	var wg sync.WaitGroup
+	gate := make(chan struct{})
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(n int) {
+			defer wg.Done()
+			<-gate // synchronise start
+			_ = b.Do(context.Background(), func(context.Context) error {
+				if n == 0 {
+					return nil // success
+				}
+				return errors.New("probe fail")
+			})
+		}(i)
+	}
+	close(gate)
+	wg.Wait()
+
+	// After all probes settle, the breaker should be in a valid state.
+	// Crucially, the success from goroutine 0 should have closed it, and
+	// late-arriving failures should NOT have incremented consecutiveFail
+	// in the closed state.
+	state := b.State()
+	if state != StateClosed && state != StateOpen {
+		t.Fatalf("expected Closed or Open, got %v", state)
+	}
+	if state == StateClosed {
+		// Verify closed state is clean: consecutiveFail must be 0.
+		b.mu.Lock()
+		cf := b.consecutiveFail
+		b.mu.Unlock()
+		if cf != 0 {
+			t.Fatalf("expected consecutiveFail=0 in closed state, got %d", cf)
+		}
+	}
+}
+
+func TestBreakerOnStateChangeCallback(t *testing.T) {
+	t.Parallel()
+
+	type transition struct {
+		from, to BreakerState
+	}
+	var mu sync.Mutex
+	var transitions []transition
+
+	b := NewBreaker(BreakerConfig{
+		FailureThreshold: 2,
+		ResetTimeout:     time.Hour,
+		OnStateChange: func(from, to BreakerState) {
+			mu.Lock()
+			transitions = append(transitions, transition{from, to})
+			mu.Unlock()
+		},
+	})
+
+	// Two failures -> Closed->Open.
+	for i := 0; i < 2; i++ {
+		_ = b.Do(context.Background(), func(context.Context) error {
+			return errors.New("fail")
+		})
+	}
+
+	// Reset -> Open->Closed.
+	b.Reset()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(transitions) != 2 {
+		t.Fatalf("expected 2 transitions, got %d: %v", len(transitions), transitions)
+	}
+	if transitions[0].from != StateClosed || transitions[0].to != StateOpen {
+		t.Fatalf("expected Closed->Open, got %v->%v", transitions[0].from, transitions[0].to)
+	}
+	if transitions[1].from != StateOpen || transitions[1].to != StateClosed {
+		t.Fatalf("expected Open->Closed, got %v->%v", transitions[1].from, transitions[1].to)
 	}
 }
 

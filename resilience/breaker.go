@@ -37,9 +37,11 @@ var ErrCircuitOpen = errors.New("circuit_open")
 
 // BreakerConfig tunes circuit breaker behaviour.
 type BreakerConfig struct {
-	FailureThreshold int           // consecutive failures before opening (default: 5)
-	ResetTimeout     time.Duration // time in open state before half-open probe (default: 30s)
-	HalfOpenMax      int           // max concurrent probes in half-open (default: 1)
+	FailureThreshold int                        // consecutive failures before opening (default: 5)
+	ResetTimeout     time.Duration              // time in open state before half-open probe (default: 30s)
+	HalfOpenMax      int                        // max concurrent probes in half-open (default: 1)
+	OnStateChange    func(from, to BreakerState) // optional callback on state transitions
+	Clock            func() time.Time            // optional clock for testing (default: time.Now)
 }
 
 func (c BreakerConfig) withDefaults() BreakerConfig {
@@ -66,17 +68,22 @@ type Breaker struct {
 	openedAt        time.Time
 	halfOpenCount   int
 
-	// timeNow is injectable for testing.
-	timeNow func() time.Time
+	timeNow       func() time.Time
+	onStateChange func(from, to BreakerState)
 }
 
 // NewBreaker creates a circuit breaker with the given configuration.
 func NewBreaker(cfg BreakerConfig) *Breaker {
 	cfg = cfg.withDefaults()
+	clock := cfg.Clock
+	if clock == nil {
+		clock = time.Now
+	}
 	return &Breaker{
-		cfg:     cfg,
-		state:   StateClosed,
-		timeNow: time.Now,
+		cfg:           cfg,
+		state:         StateClosed,
+		timeNow:       clock,
+		onStateChange: cfg.OnStateChange,
 	}
 }
 
@@ -101,58 +108,86 @@ func (b *Breaker) stateLocked() BreakerState {
 // Reset forces the breaker back to Closed, clearing all counters.
 func (b *Breaker) Reset() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	prev := b.state
 	b.state = StateClosed
 	b.consecutiveFail = 0
 	b.halfOpenCount = 0
+	cb := b.onStateChange
+	b.mu.Unlock()
+
+	if cb != nil && prev != StateClosed {
+		cb(prev, StateClosed)
+	}
 }
 
 // Do executes fn through the circuit breaker. If the circuit is open, it
 // returns ErrCircuitOpen without calling fn. Failures and successes drive state
 // transitions.
 func (b *Breaker) Do(ctx context.Context, fn func(context.Context) error) error {
-	if err := b.before(); err != nil {
+	wasProbe, err := b.before()
+	if err != nil {
 		return err
 	}
-	err := fn(ctx)
-	b.after(err)
+	err = fn(ctx)
+	b.after(wasProbe, err)
 	return err
 }
 
 // before checks whether the call is permitted and returns ErrCircuitOpen if not.
-func (b *Breaker) before() error {
+// It returns wasProbe=true when the call is a half-open probe.
+func (b *Breaker) before() (wasProbe bool, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	switch b.stateLocked() {
 	case StateClosed:
-		return nil
+		return false, nil
 	case StateOpen:
-		return ErrCircuitOpen
+		return false, ErrCircuitOpen
 	case StateHalfOpen:
 		if b.halfOpenCount >= b.cfg.HalfOpenMax {
-			return ErrCircuitOpen
+			return false, ErrCircuitOpen
 		}
 		b.halfOpenCount++
-		return nil
+		return true, nil
 	default:
-		return ErrCircuitOpen
+		return false, ErrCircuitOpen
 	}
 }
 
 // after records the outcome of a call and transitions state accordingly.
-func (b *Breaker) after(err error) {
+// If wasProbe is true and the state has already moved out of HalfOpen (e.g.
+// because a concurrent probe resolved first), the outcome is discarded to
+// avoid corrupting the new state.
+func (b *Breaker) after(wasProbe bool, err error) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
-	if err == nil {
-		b.onSuccess()
+	// Another probe already transitioned the breaker out of HalfOpen.
+	// Discard this outcome so it doesn't pollute the new state.
+	if wasProbe && b.state != StateHalfOpen {
+		b.mu.Unlock()
 		return
 	}
-	b.onFailure()
+
+	var from, to BreakerState
+	var changed bool
+	if err == nil {
+		from, to, changed = b.onSuccess()
+	} else {
+		from, to, changed = b.onFailure()
+	}
+	cb := b.onStateChange
+	b.mu.Unlock()
+
+	if changed && cb != nil {
+		cb(from, to)
+	}
 }
 
-func (b *Breaker) onSuccess() {
+// onSuccess records a successful outcome and returns any state transition.
+// Caller must hold b.mu.
+func (b *Breaker) onSuccess() (from, to BreakerState, changed bool) {
+	prev := b.state
 	switch b.state {
 	case StateClosed:
 		b.consecutiveFail = 0
@@ -161,9 +196,13 @@ func (b *Breaker) onSuccess() {
 		b.consecutiveFail = 0
 		b.halfOpenCount = 0
 	}
+	return prev, b.state, prev != b.state
 }
 
-func (b *Breaker) onFailure() {
+// onFailure records a failed outcome and returns any state transition.
+// Caller must hold b.mu.
+func (b *Breaker) onFailure() (from, to BreakerState, changed bool) {
+	prev := b.state
 	switch b.state {
 	case StateClosed:
 		b.consecutiveFail++
@@ -176,6 +215,7 @@ func (b *Breaker) onFailure() {
 		b.openedAt = b.timeNow()
 		b.halfOpenCount = 0
 	}
+	return prev, b.state, prev != b.state
 }
 
 // DoValue executes a value-returning function through a Breaker. This is a

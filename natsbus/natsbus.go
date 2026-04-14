@@ -36,7 +36,8 @@ const (
 )
 
 var (
-	errPublisherNil          = errors.New("publisher_nil")
+	// ErrPublisherNil is returned by Publish when called on a nil publisher or one without a JetStream client.
+	ErrPublisherNil          = errors.New("publisher_nil")
 	errNATSURLRequired       = errors.New("nats_url_required")
 	errStreamNameRequired    = errors.New("stream_name_required")
 	errSubjectPrefixRequired = errors.New("subject_prefix_required")
@@ -106,7 +107,6 @@ type Options struct {
 
 // ChangePublisher is implemented by types that can publish domain change events.
 type ChangePublisher interface {
-	Publish(ctx context.Context, change Change) error
 	PublishChange(ctx context.Context, change Change)
 }
 
@@ -198,7 +198,7 @@ func (publisher *Publisher) Close() {
 // returning any error encountered.
 func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 	if publisher == nil || publisher.js == nil {
-		return errPublisherNil
+		return ErrPublisherNil
 	}
 
 	subject := change.subject(publisher.subjectPrefix)
@@ -213,7 +213,7 @@ func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 	}
 
 	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
-		return fmt.Errorf("publish change event: %w", err)
+		return fmt.Errorf("publish %s: %w", subject, err)
 	}
 
 	publisher.loggerOrDefault().Debug("published change event", "seq", change.Sequence, "subject", subject)
@@ -223,6 +223,9 @@ func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 // PublishChange encodes change as a CloudEvent and publishes it to the NATS stream.
 // Errors are logged but not returned. Use Publish for error-aware callers.
 func (publisher *Publisher) PublishChange(ctx context.Context, change Change) {
+	if publisher == nil || publisher.js == nil {
+		return
+	}
 	if err := publisher.Publish(ctx, change); err != nil {
 		publisher.loggerOrDefault().Error("failed to publish change event", "error", err, "seq", change.Sequence)
 	}

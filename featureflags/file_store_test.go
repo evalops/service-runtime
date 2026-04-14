@@ -214,7 +214,10 @@ func TestFileStoreEnabledForOnePercentRollout(t *testing.T) {
 	}
 
 	// With 1% rollout over 1000 subjects, expect roughly 10 enabled (1%).
-	// Allow a generous range: 0-30 (0%–3%) to avoid flaky tests.
+	// Allow a generous range: 1-30 to avoid flaky tests.
+	if enabled == 0 {
+		t.Fatal("expected at least one subject to be inside 1% rollout")
+	}
 	if enabled > 30 {
 		t.Fatalf("expected ~1%% of subjects enabled, got %d/%d (%d%%)", enabled, total, enabled*100/total)
 	}
@@ -346,6 +349,24 @@ func TestFileStoreHasExplicitRollout(t *testing.T) {
 	}
 	if store.HasExplicitRollout("missing_flag") {
 		t.Fatalf("expected missing flag to not have explicit rollout")
+	}
+}
+
+func TestFileStoreHasExplicitRolloutIgnoresEnabledState(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "flags.json")
+	writeSnapshot(t, path, &configv1.FeatureFlagSnapshot{
+		SchemaVersion: 1,
+		Flags: []*configv1.FeatureFlag{
+			{Key: "disabled.with.rollout", Enabled: false, RolloutPercent: 50},
+		},
+	})
+	store, err := NewFileStore(path, Options{})
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	if !store.HasExplicitRollout("disabled.with.rollout") {
+		t.Fatal("expected HasExplicitRollout to return true for disabled flag with rollout_percent > 0")
 	}
 }
 
