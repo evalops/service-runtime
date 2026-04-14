@@ -3,6 +3,7 @@ package observability
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -25,6 +26,22 @@ type Metrics struct {
 	requestsTotal   *prometheus.CounterVec
 	requestDuration *prometheus.HistogramVec
 }
+
+var (
+	httpMethodLabel = NewBoundedLabel(
+		"method",
+		http.MethodConnect,
+		http.MethodDelete,
+		http.MethodGet,
+		http.MethodHead,
+		http.MethodOptions,
+		http.MethodPatch,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodTrace,
+	)
+	httpStatusLabel = newHTTPStatusLabel()
+)
 
 // NewMetrics creates and registers Prometheus metrics scoped to the given service name.
 func NewMetrics(serviceName string, opts MetricsOptions) (*Metrics, error) {
@@ -74,10 +91,11 @@ func (metrics *Metrics) RecordRequest(method, route string, status int, duration
 		return
 	}
 
+	method = httpMethodLabel.Value(strings.ToUpper(strings.TrimSpace(method)))
 	if route == "" {
 		route = "unknown"
 	}
-	statusLabel := fmt.Sprintf("%d", status)
+	statusLabel := httpStatusLabel.Value(strconv.Itoa(status))
 	metrics.requestsTotal.WithLabelValues(method, route, statusLabel).Inc()
 	metrics.requestDuration.WithLabelValues(method, route, statusLabel).Observe(duration.Seconds())
 }
@@ -131,6 +149,14 @@ func metricPrefix(serviceName string) string {
 		return "service_" + prefix
 	}
 	return prefix
+}
+
+func newHTTPStatusLabel() BoundedLabel {
+	values := make([]string, 0, 500)
+	for code := 100; code < 600; code++ {
+		values = append(values, strconv.Itoa(code))
+	}
+	return NewBoundedLabel("status", values...)
 }
 
 func registerCounterVec(registerer prometheus.Registerer, collector *prometheus.CounterVec) (*prometheus.CounterVec, error) {
