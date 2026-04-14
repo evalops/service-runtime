@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,4 +266,17 @@ func TestConcurrentAdd(_ *testing.T) {
 		c.Check(context.Background(), time.Second)
 	}
 	<-done
+}
+
+func TestEmptyCheckerSerializesChecksAsEmptyArray(t *testing.T) {
+	checker := health.New()
+	report := checker.Check(context.Background(), time.Second)
+	b, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	// Checks must be [] not null
+	if !strings.Contains(string(b), `"checks":[]`) {
+		t.Fatalf("expected checks:[], got %s", string(b))
+	}
 }
