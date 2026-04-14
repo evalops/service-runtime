@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -153,6 +154,30 @@ func TestReadyHandler(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, recorder.Code)
 	}
 	assertErrorCode(t, recorder.Body.Bytes(), "not_ready")
+}
+
+func TestCaptureResponseWriterReadFromCopiesWithoutRecursing(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	writer := NewCaptureResponseWriter(recorder)
+
+	n, err := io.Copy(writer, strings.NewReader("streamed response"))
+	if err != nil {
+		t.Fatalf("copy response body: %v", err)
+	}
+	if n != int64(len("streamed response")) {
+		t.Fatalf("expected %d bytes copied, got %d", len("streamed response"), n)
+	}
+	if writer.StatusCode() != http.StatusOK {
+		t.Fatalf("expected captured status %d, got %d", http.StatusOK, writer.StatusCode())
+	}
+	if got := string(writer.BodyBytes()); got != "streamed response" {
+		t.Fatalf("expected captured body %q, got %q", "streamed response", got)
+	}
+	if got := recorder.Body.String(); got != "streamed response" {
+		t.Fatalf("expected forwarded body %q, got %q", "streamed response", got)
+	}
 }
 
 func TestWriteStoreError(t *testing.T) {

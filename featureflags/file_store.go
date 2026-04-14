@@ -73,6 +73,7 @@ func (store *FileStore) Enabled(key string) bool {
 
 // EnabledFor reports whether the named flag is enabled for a specific subject.
 // When rollout_percent is unset, enabled flags default to full rollout.
+// Gradual rollouts require a non-empty subject.
 func (store *FileStore) EnabledFor(key string, subject string) bool {
 	flag, ok := store.Lookup(key)
 	if !ok || !flag.GetEnabled() {
@@ -86,7 +87,7 @@ func (store *FileStore) EnabledFor(key string, subject string) bool {
 
 	subject = strings.TrimSpace(subject)
 	if subject == "" {
-		return true
+		return false
 	}
 
 	return rolloutBucket(key, subject) < rolloutPercent

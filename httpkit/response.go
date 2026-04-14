@@ -106,7 +106,13 @@ func (writer *CaptureResponseWriter) Push(target string, options *http.PushOptio
 
 // ReadFrom implements io.ReaderFrom by copying from reader through Write.
 func (writer *CaptureResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
-	return io.Copy(writer, reader)
+	tee := io.TeeReader(reader, &writer.body)
+	n, err := io.Copy(writer.ResponseWriter, tee)
+	if n > 0 && !writer.wroteHeader {
+		writer.wroteHeader = true
+		writer.statusCode = http.StatusOK
+	}
+	return n, err
 }
 
 type jsonEncoder interface {

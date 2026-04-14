@@ -77,13 +77,15 @@ func TestFileStoreEnabledForRolloutPercent(t *testing.T) {
 	}
 }
 
-func TestFileStoreEnabledForBlankSubjectUsesFullFlagState(t *testing.T) {
+func TestFileStoreEnabledForBlankSubjectRequiresFullRollout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "flags.json")
-	const flagKey = "platform.kill_switches.prompts.resolve_api"
+	const gradualFlagKey = "platform.kill_switches.prompts.resolve_api"
+	const fullFlagKey = "platform.kill_switches.prompts.render"
 	writeSnapshot(t, path, &configv1.FeatureFlagSnapshot{
 		SchemaVersion: 1,
 		Flags: []*configv1.FeatureFlag{
-			{Key: flagKey, Enabled: true, RolloutPercent: 10},
+			{Key: gradualFlagKey, Enabled: true, RolloutPercent: 10},
+			{Key: fullFlagKey, Enabled: true, RolloutPercent: 100},
 		},
 	})
 
@@ -92,8 +94,11 @@ func TestFileStoreEnabledForBlankSubjectUsesFullFlagState(t *testing.T) {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 
-	if !store.EnabledFor(flagKey, "") {
-		t.Fatalf("expected blank subject to honor enabled state")
+	if store.EnabledFor(gradualFlagKey, "") {
+		t.Fatalf("expected blank subject to stay outside gradual rollout")
+	}
+	if !store.EnabledFor(fullFlagKey, "") {
+		t.Fatalf("expected blank subject to remain enabled for full rollout")
 	}
 }
 
