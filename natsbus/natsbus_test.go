@@ -343,6 +343,48 @@ func TestInjectTraceContextFallbackIncludesTraceStateAndMasksFlags(t *testing.T)
 	}
 }
 
+func TestExtractContextFallsBackToTraceParentWithoutGlobalPropagator(t *testing.T) {
+	originalPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+	t.Cleanup(func() {
+		otel.SetTextMapPropagator(originalPropagator)
+	})
+
+	traceState, err := trace.ParseTraceState("vendor=value")
+	if err != nil {
+		t.Fatalf("parse tracestate: %v", err)
+	}
+
+	parent := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff},
+		SpanID:     trace.SpanID{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef},
+		TraceFlags: trace.FlagsSampled | trace.FlagsRandom,
+		TraceState: traceState,
+	})
+
+	envelope := injectTraceContext(trace.ContextWithSpanContext(context.Background(), parent), Envelope{})
+	extracted := trace.SpanContextFromContext(ExtractContext(context.Background(), envelope))
+
+	if !extracted.IsValid() {
+		t.Fatal("expected extracted span context")
+	}
+	if !extracted.IsRemote() {
+		t.Fatal("expected remote span context")
+	}
+	if got, want := extracted.TraceID(), parent.TraceID(); got != want {
+		t.Fatalf("trace id = %s, want %s", got, want)
+	}
+	if got, want := extracted.SpanID(), parent.SpanID(); got != want {
+		t.Fatalf("span id = %s, want %s", got, want)
+	}
+	if got, want := extracted.TraceFlags(), parent.TraceFlags()&(trace.FlagsSampled|trace.FlagsRandom); got != want {
+		t.Fatalf("trace flags = %s, want %s", got, want)
+	}
+	if got, want := extracted.TraceState().String(), traceState.String(); got != want {
+		t.Fatalf("trace state = %q, want %q", got, want)
+	}
+}
+
 func TestPublishChangeLogsPublishErrors(t *testing.T) {
 	t.Parallel()
 

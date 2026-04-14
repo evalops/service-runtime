@@ -677,7 +677,11 @@ func ExtractContext(ctx context.Context, envelope Envelope) context.Context {
 	if len(carrier) == 0 {
 		return ctx
 	}
-	return otel.GetTextMapPropagator().Extract(ctx, carrier)
+	ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+	if envelope.TraceParent == "" {
+		return ctx
+	}
+	return propagation.TraceContext{}.Extract(ctx, carrier)
 }
 
 func injectTraceContext(ctx context.Context, envelope Envelope) Envelope {
