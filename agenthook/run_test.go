@@ -322,6 +322,58 @@ func TestGovernanceCheckApprovesAfterHumanApproval(t *testing.T) {
 	}
 }
 
+func TestGovernanceCheckApprovesAfterAutoApprovedDecision(t *testing.T) {
+	governance := &stubGovernanceClient{
+		response: &governancev1.EvaluateActionResponse{
+			Evaluation: &governancev1.ActionEvaluation{
+				Decision:     governancev1.ActionDecision_ACTION_DECISION_REQUIRE_APPROVAL,
+				RiskLevel:    governancev1.RiskLevel_RISK_LEVEL_HIGH,
+				Reasons:      []string{"touches protected branch"},
+				MatchedRules: []string{"branch-protection"},
+			},
+		},
+	}
+	approvals := &stubApprovalClient{
+		requestResponse: &approvalsv1.RequestApprovalResponse{
+			ApprovalRequest: &approvalsv1.ApprovalRequest{Id: "apr_auto"},
+		},
+		getResponses: []*approvalsv1.GetApprovalResponse{
+			{
+				State: "resolved",
+				Decisions: []*approvalsv1.ApprovalDecision{
+					{ApprovalRequestId: "apr_auto", Decision: approvalsv1.DecisionType_DECISION_TYPE_AUTO_APPROVED},
+				},
+			},
+		},
+	}
+	runner := &Runner{
+		Config: Config{
+			GovernanceURL:        "https://governance.example",
+			ApprovalsURL:         "https://approvals.example",
+			WorkspaceID:          "ws_123",
+			Surface:              "codex",
+			ApprovalTimeout:      defaultApprovalTimeout,
+			ApprovalPollInterval: 10 * time.Millisecond,
+			GovernanceTimeout:    defaultGovernanceTimeout,
+			ApprovalsTimeout:     defaultApprovalsTimeout,
+		},
+		Governance: governance,
+		Approvals:  approvals,
+		Sleep:      func(context.Context, time.Duration) error { return nil },
+	}
+
+	decision, err := runner.GovernanceCheck(context.Background(), []byte(`{"tool_name":"Bash","tool_input":{"command":"git push --force"},"session_id":"sess_1"}`))
+	if err != nil {
+		t.Fatalf("GovernanceCheck() error = %v", err)
+	}
+	if decision != nil {
+		t.Fatalf("expected auto-approved request to allow execution, got %#v", decision)
+	}
+	if approvals.getCalls != 1 {
+		t.Fatalf("GetApproval call count = %d, want 1", approvals.getCalls)
+	}
+}
+
 func TestGovernanceCheckDeniesRejectedApproval(t *testing.T) {
 	runner := &Runner{
 		Config: Config{
