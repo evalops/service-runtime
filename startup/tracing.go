@@ -240,9 +240,12 @@ func parseInlineTracingRatio(raw string) (string, float64, bool, error) {
 		return "", 0, false, fmt.Errorf("unsupported OTEL_TRACES_SAMPLER %q", raw)
 	}
 
-	ratio, _, err := parseTracingRatio(rawRatio)
+	ratio, ratioOK, err := parseTracingRatio(rawRatio)
 	if err != nil {
 		return "", 0, false, err
+	}
+	if !ratioOK {
+		return "", 0, false, fmt.Errorf("OTEL_TRACES_SAMPLER %q must include a numeric ratio between 0 and 1", raw)
 	}
 	return sampler, ratio, true, nil
 }

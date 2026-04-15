@@ -82,6 +82,22 @@ func TestTracingConfigFromEnvRejectsInvalidRatio(t *testing.T) {
 	}
 }
 
+func TestTracingConfigFromEnvRejectsMissingInlineRatio(t *testing.T) {
+	t.Setenv("OTEL_TRACES_SAMPLER", "traceidratio:")
+
+	if _, err := TracingConfigFromEnv("runtime-test"); err == nil {
+		t.Fatal("expected missing inline ratio to fail")
+	}
+}
+
+func TestTracingConfigFromEnvRejectsNonNumericInlineRatio(t *testing.T) {
+	t.Setenv("OTEL_TRACES_SAMPLER", "traceidratio:abc")
+
+	if _, err := TracingConfigFromEnv("runtime-test"); err == nil {
+		t.Fatal("expected non-numeric inline ratio to fail")
+	}
+}
+
 func TestInitTracingDisabled(t *testing.T) {
 	originalProvider := noop.NewTracerProvider()
 	otel.SetTracerProvider(originalProvider)
