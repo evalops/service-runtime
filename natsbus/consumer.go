@@ -31,6 +31,9 @@ var (
 	errConsumerHandlerNil      = errors.New("consumer_handler_nil")
 )
 
+// Consumer handles a NATS message inside a subscription callback.
+type Consumer func(context.Context, *nats.Msg) error
+
 // ConsumerOptions configures a shared JetStream queue consumer.
 type ConsumerOptions struct {
 	Logger        *slog.Logger
@@ -81,7 +84,7 @@ var newConsumerJetStream = func(connection *nats.Conn) (consumerJetStream, error
 }
 
 // Subscribe connects a shared JetStream queue consumer and returns a shutdown function.
-func Subscribe(ctx context.Context, natsURL string, opts ConsumerOptions, handler func(context.Context, *nats.Msg) error) (func(context.Context) error, error) {
+func Subscribe(ctx context.Context, natsURL string, opts ConsumerOptions, handler Consumer) (func(context.Context) error, error) {
 	opts = opts.withDefaults()
 	natsURL = strings.TrimSpace(natsURL)
 	if natsURL == "" {
