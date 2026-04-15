@@ -119,6 +119,10 @@ func (c *Client) failureResult(op string, err error) error {
 		c.logger.Warn("downstream call failed (fail-open)",
 			"downstream", c.name, "op", op, "error", err)
 		return nil
+	case FailClosed:
+		c.logger.Error("downstream call failed (fail-closed)",
+			"downstream", c.name, "op", op, "error", err)
+		return err
 	default:
 		c.logger.Error("downstream call failed (fail-closed)",
 			"downstream", c.name, "op", op, "error", err)

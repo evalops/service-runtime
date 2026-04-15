@@ -121,6 +121,8 @@ func (runner *Runner) GovernanceCheck(ctx context.Context, input []byte) (*Permi
 	}
 
 	switch evaluation.GetDecision() {
+	case governancev1.ActionDecision_ACTION_DECISION_UNSPECIFIED:
+		return denyDecision("governance returned an unknown decision"), nil
 	case governancev1.ActionDecision_ACTION_DECISION_ALLOW:
 		return nil, nil
 	case governancev1.ActionDecision_ACTION_DECISION_DENY:
@@ -257,8 +259,10 @@ func decisionFromApproval(state string, decision *approvalsv1.ApprovalDecision) 
 	}
 
 	switch decision.GetDecision() {
-	case approvalsv1.DecisionType_DECISION_TYPE_APPROVED:
+	case approvalsv1.DecisionType_DECISION_TYPE_APPROVED, approvalsv1.DecisionType_DECISION_TYPE_AUTO_APPROVED:
 		return nil
+	case approvalsv1.DecisionType_DECISION_TYPE_UNSPECIFIED:
+		return denyDecision(firstNonEmpty(decision.GetReason(), "approval did not resolve to allow"))
 	case approvalsv1.DecisionType_DECISION_TYPE_DENIED:
 		return denyDecision(firstNonEmpty(decision.GetReason(), "approval denied"))
 	case approvalsv1.DecisionType_DECISION_TYPE_EXPIRED:
@@ -285,6 +289,8 @@ func joinReasons(reasons []string, fallback string) string {
 
 func mapApprovalRisk(level governancev1.RiskLevel) approvalsv1.RiskLevel {
 	switch level {
+	case governancev1.RiskLevel_RISK_LEVEL_UNSPECIFIED:
+		return approvalsv1.RiskLevel_RISK_LEVEL_UNSPECIFIED
 	case governancev1.RiskLevel_RISK_LEVEL_LOW:
 		return approvalsv1.RiskLevel_RISK_LEVEL_LOW
 	case governancev1.RiskLevel_RISK_LEVEL_MEDIUM:

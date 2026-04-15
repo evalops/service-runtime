@@ -62,7 +62,6 @@ func TestConnectWithOptionsCreatesConfiguredStream(t *testing.T) {
 	if fakeJS.streamConfig.Storage != jetstream.MemoryStorage {
 		t.Fatalf("unexpected storage %#v", fakeJS.streamConfig.Storage)
 	}
-
 }
 
 func TestConnectWithOptionsRejectsMissingConfig(t *testing.T) {

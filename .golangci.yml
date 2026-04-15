@@ -8,19 +8,48 @@ linters:
   enable:
     - errcheck
     - govet
-    - ineffassign
     - staticcheck
     - unused
-    - gocritic
-    - gosec
     - nilerr
+    - gosec
+    - gocritic
+    - copyloopvar
+    - durationcheck
+    - exhaustive
+    - makezero
+    - noctx
+    - reassign
+    - sqlclosecheck
     - revive
+    - ineffassign
+    - misspell
+    - whitespace
 
   settings:
     errcheck:
       check-type-assertions: true
+    exhaustive:
+      default-signifies-exhaustive: false
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        - hugeParam
     revive:
       rules:
         - name: exported
           severity: warning
           disabled: false
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - gocritic
+          - noctx
+      - path: vendor/
+        linters:
+          - ALL

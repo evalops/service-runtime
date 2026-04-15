@@ -377,6 +377,8 @@ func marshalEnvelope(envelope Envelope, wireFormat WireFormat) ([]byte, error) {
 		return marshalEnvelopeJSON(envelope)
 	case WireFormatProto:
 		return marshalEnvelopeProto(envelope)
+	case WireFormatProtoHeaders:
+		return nil, errWireFormatInvalid
 	default:
 		return nil, errWireFormatInvalid
 	}
@@ -488,6 +490,8 @@ func UnmarshalEnvelope(data []byte) (Envelope, error) {
 		return Envelope{}, err
 	case WireFormatProto:
 		return unmarshalEnvelopeProto(data)
+	case WireFormatProtoHeaders:
+		return Envelope{}, errWireFormatInvalid
 	default:
 		return Envelope{}, errWireFormatInvalid
 	}

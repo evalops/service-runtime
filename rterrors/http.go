@@ -37,6 +37,15 @@ func HTTPStatus(err error) int {
 		return http.StatusTooManyRequests
 	case connect.CodeUnavailable:
 		return http.StatusServiceUnavailable
+	case connect.CodeCanceled,
+		connect.CodeUnknown,
+		connect.CodeDeadlineExceeded,
+		connect.CodeAborted,
+		connect.CodeOutOfRange,
+		connect.CodeUnimplemented,
+		connect.CodeInternal,
+		connect.CodeDataLoss:
+		return http.StatusInternalServerError
 	default:
 		return http.StatusInternalServerError
 	}

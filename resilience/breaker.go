@@ -207,6 +207,8 @@ func (b *Breaker) onSuccess() (from, to BreakerState, changed bool) {
 	switch b.state {
 	case StateClosed:
 		b.consecutiveFail = 0
+	case StateOpen:
+		// Calls should not succeed while open, but leave the state unchanged if they do.
 	case StateHalfOpen:
 		b.state = StateClosed
 		b.consecutiveFail = 0
@@ -226,6 +228,8 @@ func (b *Breaker) onFailure() (from, to BreakerState, changed bool) {
 			b.state = StateOpen
 			b.openedAt = b.timeNow()
 		}
+	case StateOpen:
+		// Calls should not reach onFailure while open, but keep the breaker open if they do.
 	case StateHalfOpen:
 		b.state = StateOpen
 		b.openedAt = b.timeNow()

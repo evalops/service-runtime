@@ -321,6 +321,8 @@ func metricValue(metricFamilies []*dto.MetricFamily, name string) float64 {
 			return family.Metric[0].GetCounter().GetValue()
 		case dto.MetricType_GAUGE:
 			return family.Metric[0].GetGauge().GetValue()
+		case dto.MetricType_SUMMARY, dto.MetricType_UNTYPED, dto.MetricType_HISTOGRAM, dto.MetricType_GAUGE_HISTOGRAM:
+			return 0
 		}
 	}
 	return 0
@@ -340,6 +342,8 @@ func metricValueWithLabels(metricFamilies []*dto.MetricFamily, name string, labe
 				return metric.GetCounter().GetValue()
 			case dto.MetricType_GAUGE:
 				return metric.GetGauge().GetValue()
+			case dto.MetricType_SUMMARY, dto.MetricType_UNTYPED, dto.MetricType_HISTOGRAM, dto.MetricType_GAUGE_HISTOGRAM:
+				return 0
 			}
 		}
 	}

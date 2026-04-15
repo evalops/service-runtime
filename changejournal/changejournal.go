@@ -23,7 +23,7 @@ type PlaceholderStyle int
 
 // PlaceholderDollar and PlaceholderQuestion are the supported placeholder styles.
 const (
-	PlaceholderDollar   PlaceholderStyle = iota + 1
+	PlaceholderDollar PlaceholderStyle = iota + 1
 	PlaceholderQuestion
 )
 
@@ -284,6 +284,8 @@ func joinPlaceholders(style PlaceholderStyle, count int) string {
 		switch style {
 		case PlaceholderQuestion:
 			parts = append(parts, "?")
+		case PlaceholderDollar:
+			parts = append(parts, fmt.Sprintf("$%d", index+1))
 		default:
 			parts = append(parts, fmt.Sprintf("$%d", index+1))
 		}
