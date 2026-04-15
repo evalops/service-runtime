@@ -1,0 +1,6 @@
+# Shared runtime is critical infrastructure — platform-team owns
+* @evalops/platform-team
+
+# Go module changes need careful review
+go.mod @evalops/platform-team
+go.sum @evalops/platform-team
