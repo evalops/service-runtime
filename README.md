@@ -130,6 +130,65 @@ defer func() {
 }()
 ```
 
+### `migrate`
+
+Shared `golang-migrate` helpers for services that want versioned SQL migrations
+without each repo inventing its own bootstrap and CLI/env parsing.
+
+Main entry points:
+
+- `migrate.Run(ctx, db, migrationsDir, opts)`
+- `migrate.RunIOFS(ctx, db, fsys, path, opts)`
+- `(*migrate.Options).BindFlags(fs)`
+- `(*migrate.Options).ApplyEnv(prefix)`
+- `migrate.ParseCommand(raw)`
+
+Supported commands:
+
+- `up`
+- `down`
+- `version`
+
+Default env vars use the `EVALOPS_` prefix:
+
+- `EVALOPS_MIGRATE_COMMAND`
+- `EVALOPS_MIGRATE_DOWN_STEPS`
+- `EVALOPS_MIGRATE_TABLE`
+
+Example:
+
+```go
+var migrateOpts runtimemigrate.Options
+migrateOpts.BindFlags(flag.CommandLine)
+if err := migrateOpts.ApplyEnv("evalops"); err != nil {
+	return err
+}
+
+db, result, err := runtimepostgres.OpenAndMigrateIOFS(
+	ctx,
+	cfg.DatabaseURL,
+	migrationsFS,
+	"migrations",
+	migrateOpts,
+	func(ctx context.Context, db *sql.DB) error {
+		store = NewPostgresStore(db)
+		return nil
+	},
+	runtimepostgres.Options{},
+)
+if err != nil {
+	return err
+}
+
+log.Printf("migration command=%s applied=%t version=%v dirty=%t", result.Command, result.Applied, result.Version, result.Dirty)
+_ = db
+```
+
+For Kubernetes or ArgoCD-driven deploys, prefer running the same binary as a
+pre-deploy migration job instead of doing schema changes on the hot path of a
+serving pod. A reusable starter template lives at
+[`templates/helm/migration-job.yaml`](templates/helm/migration-job.yaml).
+
 ### `postgres`
 
 Helpers for opening and validating `database/sql` PostgreSQL connections.
@@ -138,6 +197,8 @@ Main entry points:
 
 - `postgres.Open(ctx, databaseURL, opts)`
 - `postgres.OpenAndInit(ctx, databaseURL, init, opts)`
+- `postgres.OpenAndMigrate(ctx, databaseURL, migrationsDir, migrateOpts, init, opts)`
+- `postgres.OpenAndMigrateIOFS(ctx, databaseURL, fsys, path, migrateOpts, init, opts)`
 
 Use `OpenAndInit` when a service needs to run bootstrap logic after the DB is
 reachable, such as:
@@ -158,6 +219,9 @@ db, err := postgres.OpenAndInit(ctx, databaseURL, func(ctx context.Context, db *
 ```
 
 This is the pattern used by `memory`, `meter`, and `audit`.
+
+For versioned migrations, prefer `OpenAndMigrate` or `OpenAndMigrateIOFS`
+instead of raw `CREATE TABLE IF NOT EXISTS` bootstrap callbacks.
 
 ### `redisutil`
 
@@ -798,6 +862,7 @@ When adding new shared helpers here:
 
 ```text
 startup/       Retry primitives and lifecycle helpers
+migrate/       Shared golang-migrate wrapper and command parsing
 postgres/      database/sql PostgreSQL bootstrap
 redisutil/     Redis bootstrap
 ratelimit/     HTTP rate limiting middleware
@@ -806,6 +871,7 @@ pgxpoolutil/   pgxpool bootstrap
 testutil/      shared HTTP/auth/Postgres test helpers
 mtls/          Shared mTLS client/server helpers
 identityclient/ Shared Identity introspection client
+templates/     Reusable deployment templates and snippets
 images/        Shared builder image definitions
 ```
 
@@ -853,3 +919,11 @@ To bring the same lint and hook setup to another EvalOps service:
 1. Copy `.golangci.yml`, `Makefile`, and `scripts/pre-commit` from this repo.
 2. Run `make install-hooks`.
 3. Adjust linter settings in `.golangci.yml` if the service has different needs.
+
+For schema migrations specifically:
+
+1. Store ordered `*.up.sql` and `*.down.sql` files under a service-local `migrations/` directory.
+2. Prefer embedding migrations with `//go:embed` and `migrate.RunIOFS(...)` so the binary and the schema version stay in lockstep.
+3. Use `migrate.Options.BindFlags(...)` and `ApplyEnv(...)` so the same binary can run `up`, `down`, or `version` in CI, local development, or Helm jobs.
+4. Keep destructive `down` usage explicit by setting `EVALOPS_MIGRATE_DOWN_STEPS` or a matching CLI flag instead of dropping the whole schema.
+5. For Postgres, keep online DDL discipline: add columns before backfills, use `CREATE INDEX CONCURRENTLY` when needed, and avoid long locks in serving pods.
