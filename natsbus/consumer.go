@@ -12,11 +12,15 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+// DeliveryPolicy controls where a consumer starts reading messages.
 type DeliveryPolicy string
 
 const (
-	DeliverNew  DeliveryPolicy = "new"
-	DeliverAll  DeliveryPolicy = "all"
+	// DeliverNew starts the consumer at newly published messages.
+	DeliverNew DeliveryPolicy = "new"
+	// DeliverAll starts the consumer at the beginning of the stream.
+	DeliverAll DeliveryPolicy = "all"
+	// DeliverLast starts the consumer at the most recent message.
 	DeliverLast DeliveryPolicy = "last"
 )
 
@@ -27,6 +31,7 @@ var (
 	errConsumerHandlerNil      = errors.New("consumer_handler_nil")
 )
 
+// ConsumerOptions configures a shared JetStream queue consumer.
 type ConsumerOptions struct {
 	Logger        *slog.Logger
 	Stream        string
@@ -75,6 +80,7 @@ var newConsumerJetStream = func(connection *nats.Conn) (consumerJetStream, error
 	return consumerJetStreamWrapper{js: js}, nil
 }
 
+// Subscribe connects a shared JetStream queue consumer and returns a shutdown function.
 func Subscribe(ctx context.Context, natsURL string, opts ConsumerOptions, handler func(context.Context, *nats.Msg) error) (func(context.Context) error, error) {
 	opts = opts.withDefaults()
 	natsURL = strings.TrimSpace(natsURL)
@@ -197,7 +203,7 @@ func (opts ConsumerOptions) subscribeOptions() []nats.SubOpt {
 		options = append(options, nats.DeliverAll())
 	case DeliverLast:
 		options = append(options, nats.DeliverLast())
-	default:
+	case DeliverNew:
 		options = append(options, nats.DeliverNew())
 	}
 	return options
