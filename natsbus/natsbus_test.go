@@ -885,6 +885,127 @@ func TestUnmarshalPayloadRejectsNilTarget(t *testing.T) {
 	}
 }
 
+func TestSubscribeConfiguresDurableQueueConsumer(t *testing.T) {
+	t.Parallel()
+
+	originalConnect := connectNATS
+	originalNewConsumerJetStream := newConsumerJetStream
+	originalCloseConnection := closeConnection
+	t.Cleanup(func() {
+		connectNATS = originalConnect
+		newConsumerJetStream = originalNewConsumerJetStream
+		closeConnection = originalCloseConnection
+	})
+
+	fakeJS := &fakeConsumerJetStream{sub: &fakeSubscription{}}
+	connectNATS = func(string, ...nats.Option) (*nats.Conn, error) {
+		return &nats.Conn{}, nil
+	}
+	newConsumerJetStream = func(*nats.Conn) (consumerJetStream, error) {
+		return fakeJS, nil
+	}
+	closeConnection = func(*nats.Conn) {}
+
+	cleanup, err := Subscribe(context.Background(), "nats://example", ConsumerOptions{
+		Stream:        "approvals_events",
+		Subject:       "approvals.events.approval_habit.habit-learned",
+		Durable:       "audit-approval-habits",
+		Queue:         "audit-approval-habits",
+		AckWait:       15 * time.Second,
+		DeliverPolicy: DeliverNew,
+	}, func(context.Context, *nats.Msg) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("expected cleanup function")
+	}
+	if fakeJS.subject != "approvals.events.approval_habit.habit-learned" {
+		t.Fatalf("unexpected subject %q", fakeJS.subject)
+	}
+	if fakeJS.queue != "audit-approval-habits" {
+		t.Fatalf("unexpected queue %q", fakeJS.queue)
+	}
+	if fakeJS.handler == nil {
+		t.Fatal("expected subscription handler to be captured")
+	}
+	if err := cleanup(context.Background()); err != nil {
+		t.Fatalf("cleanup() error = %v", err)
+	}
+	if !fakeJS.sub.drained {
+		t.Fatal("expected cleanup to drain subscription")
+	}
+}
+
+func TestSubscribeAcksAndNaksHandlerResults(t *testing.T) {
+	t.Parallel()
+
+	originalConnect := connectNATS
+	originalNewConsumerJetStream := newConsumerJetStream
+	originalAckMessage := ackMessage
+	originalNakMessage := nakMessage
+	originalCloseConnection := closeConnection
+	t.Cleanup(func() {
+		connectNATS = originalConnect
+		newConsumerJetStream = originalNewConsumerJetStream
+		ackMessage = originalAckMessage
+		nakMessage = originalNakMessage
+		closeConnection = originalCloseConnection
+	})
+
+	fakeJS := &fakeConsumerJetStream{sub: &fakeSubscription{}}
+	connectNATS = func(string, ...nats.Option) (*nats.Conn, error) {
+		return &nats.Conn{}, nil
+	}
+	newConsumerJetStream = func(*nats.Conn) (consumerJetStream, error) {
+		return fakeJS, nil
+	}
+	closeConnection = func(*nats.Conn) {}
+
+	var calls int
+	_, err := Subscribe(context.Background(), "nats://example", ConsumerOptions{
+		Stream:  "approvals_events",
+		Subject: "approvals.events.approval_habit.habit-learned",
+		Durable: "agent-mcp-approval-habits",
+	}, func(context.Context, *nats.Msg) error {
+		calls++
+		if calls == 1 {
+			return nil
+		}
+		return errors.New("boom")
+	})
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	acked := false
+	naked := false
+	ackMessage = func(*nats.Msg) error {
+		acked = true
+		return nil
+	}
+	nakMessage = func(*nats.Msg) error {
+		naked = true
+		return nil
+	}
+
+	msg := &nats.Msg{}
+	fakeJS.handler(msg)
+	if !acked {
+		t.Fatal("expected successful handler to ack message")
+	}
+	acked = false
+	fakeJS.handler(msg)
+	if !naked {
+		t.Fatal("expected failed handler to nak message")
+	}
+	if acked {
+		t.Fatal("did not expect failed handler to ack message")
+	}
+}
+
 type fakeJetStream struct {
 	streamConfig jetstream.StreamConfig
 	subject      string
@@ -893,6 +1014,38 @@ type fakeJetStream struct {
 	publishCalls int
 	publishErrs  []error
 	publishErr   error
+}
+
+type fakeConsumerJetStream struct {
+	subject string
+	queue   string
+	handler nats.MsgHandler
+	sub     *fakeSubscription
+	err     error
+}
+
+func (fake *fakeConsumerJetStream) QueueSubscribe(subject, queue string, cb nats.MsgHandler, _ ...nats.SubOpt) (consumerSubscription, error) {
+	fake.subject = subject
+	fake.queue = queue
+	fake.handler = cb
+	if fake.sub == nil {
+		fake.sub = &fakeSubscription{}
+	}
+	return fake.sub, fake.err
+}
+
+type fakeSubscription struct {
+	drained bool
+}
+
+func (fake *fakeSubscription) Drain() error {
+	fake.drained = true
+	return nil
+}
+
+func (fake *fakeSubscription) Unsubscribe() error {
+	fake.drained = true
+	return nil
 }
 
 func (fake *fakeJetStream) CreateOrUpdateStream(_ context.Context, cfg jetstream.StreamConfig) (jetstream.Stream, error) {
