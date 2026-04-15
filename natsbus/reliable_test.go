@@ -124,6 +124,94 @@ func TestReliablePublisherReplayPendingPublishesAndClearsDeadLetters(t *testing.
 	}
 }
 
+func TestReliablePublisherPublishChangeNilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var reliable *ReliablePublisher
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("expected nil receiver to be a no-op, got panic %v", recovered)
+		}
+	}()
+
+	reliable.PublishChange(context.Background(), testReliableChange(1))
+}
+
+func TestReliablePublisherReplayPendingSerializesConcurrentReplays(t *testing.T) {
+	t.Parallel()
+
+	js := &reliableFakeJetStream{
+		publishErrs: []error{
+			errors.New("nats unavailable"),
+			errors.New("nats unavailable"),
+			errors.New("nats unavailable"),
+		},
+	}
+	reliable := newTestReliablePublisher(t, js, ReliableOptions{
+		Retry: resilience.RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: time.Nanosecond,
+			MaxDelay:     time.Nanosecond,
+			Multiplier:   1,
+		},
+		Breaker: resilience.BreakerConfig{
+			FailureThreshold: 5,
+			ResetTimeout:     time.Hour,
+		},
+	})
+
+	if err := reliable.Publish(context.Background(), testReliableChange(1)); err == nil {
+		t.Fatal("expected publish to dead-letter after retries")
+	}
+	if got := reliable.deadLetters.Count(); got != 1 {
+		t.Fatalf("expected 1 dead letter before replay, got %d", got)
+	}
+
+	hook := &reliablePublishHook{
+		started: make(chan struct{}, 2),
+		release: make(chan struct{}),
+	}
+	js.SetPublishHook(hook)
+
+	firstErr := make(chan error, 1)
+	go func() {
+		firstErr <- reliable.replayOnce(context.Background())
+	}()
+
+	select {
+	case <-hook.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first replay publish")
+	}
+
+	secondErr := make(chan error, 1)
+	go func() {
+		secondErr <- reliable.ReplayPending(context.Background())
+	}()
+
+	select {
+	case <-hook.started:
+		t.Fatal("concurrent replay started a duplicate publish")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(hook.release)
+
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first replay failed: %v", err)
+	}
+	if err := <-secondErr; err != nil {
+		t.Fatalf("second replay failed: %v", err)
+	}
+	if got := js.PublishCount(); got != 4 {
+		t.Fatalf("expected a single replay publish, got %d total publish attempts", got)
+	}
+	if got := reliable.deadLetters.Count(); got != 0 {
+		t.Fatalf("expected dead letters to drain after replay, got %d", got)
+	}
+}
+
 func TestReliablePublisherBreakerOpensAndSkipsNATSAfterThreshold(t *testing.T) {
 	t.Parallel()
 
@@ -233,6 +321,7 @@ type reliableFakeJetStream struct {
 	publishErrs  []error
 	publishCount int
 	messages     []*nats.Msg
+	publishHook  *reliablePublishHook
 }
 
 func (fake *reliableFakeJetStream) CreateOrUpdateStream(_ context.Context, cfg jetstream.StreamConfig) (jetstream.Stream, error) {
@@ -245,20 +334,35 @@ func (fake *reliableFakeJetStream) CreateOrUpdateStream(_ context.Context, cfg j
 
 func (fake *reliableFakeJetStream) PublishMsg(_ context.Context, message *nats.Msg, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
 	fake.mu.Lock()
-	defer fake.mu.Unlock()
-
 	fake.publishCount++
 	fake.messages = append(fake.messages, cloneMessage(message))
+	hook := fake.publishHook
 	if len(fake.publishErrs) == 0 {
+		fake.mu.Unlock()
+		if hook != nil {
+			hook.started <- struct{}{}
+			<-hook.release
+		}
 		return &jetstream.PubAck{}, nil
 	}
 
 	err := fake.publishErrs[0]
 	fake.publishErrs = fake.publishErrs[1:]
+	fake.mu.Unlock()
+	if hook != nil {
+		hook.started <- struct{}{}
+		<-hook.release
+	}
 	if err != nil {
 		return nil, err
 	}
 	return &jetstream.PubAck{}, nil
+}
+
+func (fake *reliableFakeJetStream) SetPublishHook(hook *reliablePublishHook) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	fake.publishHook = hook
 }
 
 func (fake *reliableFakeJetStream) PublishCount() int {
@@ -276,4 +380,9 @@ func (fake *reliableFakeJetStream) Messages() []*nats.Msg {
 		messages = append(messages, cloneMessage(message))
 	}
 	return messages
+}
+
+type reliablePublishHook struct {
+	started chan struct{}
+	release chan struct{}
 }

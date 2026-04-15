@@ -69,8 +69,9 @@ type ReliablePublisher struct {
 	replayBatchSize int
 	clock           func() time.Time
 
-	cancel func()
-	wg     sync.WaitGroup
+	replayMu sync.Mutex
+	cancel   func()
+	wg       sync.WaitGroup
 }
 
 // ConnectReliable connects to NATS and returns a ReliablePublisher using the
@@ -171,6 +172,9 @@ func (publisher *ReliablePublisher) Publish(ctx context.Context, change Change) 
 
 // PublishChange preserves the ChangePublisher behaviour and logs final errors.
 func (publisher *ReliablePublisher) PublishChange(ctx context.Context, change Change) {
+	if publisher == nil || publisher.publisher == nil || publisher.publisher.js == nil {
+		return
+	}
 	if err := publisher.Publish(ctx, change); err != nil {
 		publisher.logger.Error("failed to publish reliable change event", "error", err, "seq", change.Sequence)
 	}
@@ -203,6 +207,9 @@ func (publisher *ReliablePublisher) replayLoop(ctx context.Context) {
 }
 
 func (publisher *ReliablePublisher) replayOnce(ctx context.Context) error {
+	publisher.replayMu.Lock()
+	defer publisher.replayMu.Unlock()
+
 	records, err := publisher.deadLetters.List(publisher.replayBatchSize)
 	if err != nil {
 		return err
