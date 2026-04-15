@@ -182,21 +182,23 @@ func injectMessageTraceContext(ctx context.Context, message *nats.Msg) {
 		return
 	}
 
-	carrier := newNATSHeaderCarrier(&message.Header)
-	otel.GetTextMapPropagator().Inject(ctx, carrier)
-
-	if carrier.Get(headerTraceParent) != "" {
-		return
-	}
-
+	propagated := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, propagated)
 	spanContext := trace.SpanContextFromContext(ctx)
-	if !spanContext.IsValid() {
+	if propagated.Get(headerTraceParent) == "" && spanContext.IsValid() {
+		flags := spanContext.TraceFlags() & (trace.FlagsSampled | trace.FlagsRandom)
+		propagated.Set(headerTraceParent, fmt.Sprintf("00-%s-%s-%02x", spanContext.TraceID(), spanContext.SpanID(), byte(flags)))
+		if traceState := spanContext.TraceState().String(); traceState != "" {
+			propagated.Set(headerTraceState, traceState)
+		}
+	}
+	if len(propagated) == 0 {
 		return
 	}
-	flags := spanContext.TraceFlags() & (trace.FlagsSampled | trace.FlagsRandom)
-	carrier.Set(headerTraceParent, fmt.Sprintf("00-%s-%s-%02x", spanContext.TraceID(), spanContext.SpanID(), byte(flags)))
-	if traceState := spanContext.TraceState().String(); traceState != "" {
-		carrier.Set(headerTraceState, traceState)
+
+	carrier := newNATSHeaderCarrier(&message.Header)
+	for key, value := range propagated {
+		carrier.Set(key, value)
 	}
 }
 

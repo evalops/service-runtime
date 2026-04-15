@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // DeliveryPolicy controls where a consumer starts reading messages.
@@ -115,14 +118,29 @@ func Subscribe(ctx context.Context, natsURL string, opts ConsumerOptions, handle
 	}
 
 	subscription, err := js.QueueSubscribe(opts.Subject, opts.queueName(), func(message *nats.Msg) {
-		if err := handler(context.Background(), message); err != nil {
+		parentCtx := extractMessageContext(message)
+		options := []trace.SpanStartOption{
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(append(processSpanAttributes(opts.Subject), semconv.MessagingDestinationSubscriptionName(opts.queueName()))...),
+		}
+		if parent := trace.SpanContextFromContext(parentCtx); parent.IsValid() {
+			options = append(options, trace.WithLinks(trace.Link{SpanContext: parent}))
+		}
+
+		handlerCtx, span := otel.Tracer(propagationTracerName).Start(parentCtx, "nats.process", options...)
+		defer span.End()
+
+		if err := handler(handlerCtx, message); err != nil {
+			recordSpanError(span, err)
 			opts.loggerOrDefault().Error("consumer handler failed", "subject", opts.Subject, "durable", opts.Durable, "error", err)
 			if nakErr := nakMessage(message); nakErr != nil {
+				recordSpanError(span, nakErr)
 				opts.loggerOrDefault().Error("consumer nak failed", "subject", opts.Subject, "durable", opts.Durable, "error", nakErr)
 			}
 			return
 		}
 		if err := ackMessage(message); err != nil {
+			recordSpanError(span, err)
 			opts.loggerOrDefault().Error("consumer ack failed", "subject", opts.Subject, "durable", opts.Durable, "error", err)
 		}
 	}, opts.subscribeOptions()...)

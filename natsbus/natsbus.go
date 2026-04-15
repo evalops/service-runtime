@@ -213,12 +213,23 @@ func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 		return ErrPublisherNil
 	}
 
+	subject := change.subject(publisher.subjectPrefix)
+	ctx, span := otel.Tracer(propagationTracerName).Start(
+		ctx,
+		"nats.publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(publishSpanAttributes(subject)...),
+	)
+	defer span.End()
+
 	message, err := publisher.buildMessage(ctx, change)
 	if err != nil {
+		recordSpanError(span, err)
 		return err
 	}
 
 	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
+		recordSpanError(span, err)
 		return fmt.Errorf("publish %s: %w", message.Subject, err)
 	}
 
@@ -259,6 +270,7 @@ func (publisher *Publisher) buildMessage(ctx context.Context, change Change) (*n
 	if err != nil {
 		return nil, fmt.Errorf("marshal change event: %w", err)
 	}
+	injectMessageTraceContext(ctx, message)
 	return message, nil
 }
 
