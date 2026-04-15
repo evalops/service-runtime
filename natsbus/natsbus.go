@@ -15,7 +15,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -213,12 +216,18 @@ func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 		return ErrPublisherNil
 	}
 
+	subject := change.subject(publisher.subjectPrefix)
+	ctx, span := startMessagingSpan(ctx, "nats.publish", trace.SpanKindProducer, subject)
+	defer span.End()
+
 	message, err := publisher.buildMessage(ctx, change)
 	if err != nil {
+		recordSpanError(span, err)
 		return err
 	}
 
 	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
+		recordSpanError(span, err)
 		return fmt.Errorf("publish %s: %w", message.Subject, err)
 	}
 
@@ -259,6 +268,7 @@ func (publisher *Publisher) buildMessage(ctx context.Context, change Change) (*n
 	if err != nil {
 		return nil, fmt.Errorf("marshal change event: %w", err)
 	}
+	injectMessageTraceHeaders(ctx, message)
 	return message, nil
 }
 
@@ -666,6 +676,92 @@ func normalizedWireFormat(wireFormat WireFormat) WireFormat {
 	default:
 		return ""
 	}
+}
+
+type natsHeaderCarrier struct {
+	header nats.Header
+}
+
+func (carrier natsHeaderCarrier) Get(key string) string {
+	return carrier.header.Get(key)
+}
+
+func (carrier natsHeaderCarrier) Set(key, value string) {
+	carrier.header.Set(key, value)
+}
+
+func (carrier natsHeaderCarrier) Keys() []string {
+	keys := make([]string, 0, len(carrier.header))
+	for key := range carrier.header {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func injectMessageTraceHeaders(ctx context.Context, message *nats.Msg) {
+	if message == nil {
+		return
+	}
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	if len(carrier) == 0 {
+		return
+	}
+	if message.Header == nil {
+		message.Header = nats.Header{}
+	}
+	for key, value := range carrier {
+		message.Header.Set(key, value)
+	}
+}
+
+func extractMessageContext(ctx context.Context, message *nats.Msg) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if message == nil {
+		return ctx
+	}
+	if len(message.Header) > 0 {
+		extracted := otel.GetTextMapPropagator().Extract(ctx, natsHeaderCarrier{header: message.Header})
+		if trace.SpanContextFromContext(extracted).IsValid() {
+			return extracted
+		}
+		ctx = extracted
+	}
+
+	envelope, err := UnmarshalMessage(message)
+	if err != nil {
+		return ctx
+	}
+	return ExtractContext(ctx, envelope)
+}
+
+func startMessagingSpan(ctx context.Context, name string, kind trace.SpanKind, subject string, extraAttributes ...attribute.KeyValue) (context.Context, trace.Span) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	attributes := []attribute.KeyValue{semconv.MessagingSystemKey.String("nats")}
+	if subject != "" {
+		attributes = append(attributes, semconv.MessagingDestinationName(subject))
+	}
+	attributes = append(attributes, extraAttributes...)
+
+	return otel.Tracer("github.com/evalops/service-runtime/natsbus").Start(
+		ctx,
+		name,
+		trace.WithSpanKind(kind),
+		trace.WithAttributes(attributes...),
+	)
+}
+
+func recordSpanError(span trace.Span, err error) {
+	if span == nil || err == nil {
+		return
+	}
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
 }
 
 func hasCloudEventHeaders(header nats.Header) bool {

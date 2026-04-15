@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // DeliveryPolicy controls where a consumer starts reading messages.
@@ -112,14 +114,26 @@ func Subscribe(ctx context.Context, natsURL string, opts ConsumerOptions, handle
 	}
 
 	subscription, err := js.QueueSubscribe(opts.Subject, opts.queueName(), func(message *nats.Msg) {
-		if err := handler(context.Background(), message); err != nil {
+		handlerCtx, span := startMessagingSpan(
+			extractMessageContext(context.Background(), message),
+			"nats.process",
+			trace.SpanKindConsumer,
+			opts.Subject,
+			semconv.MessagingDestinationSubscriptionName(opts.queueName()),
+		)
+		defer span.End()
+
+		if err := handler(handlerCtx, message); err != nil {
+			recordSpanError(span, err)
 			opts.loggerOrDefault().Error("consumer handler failed", "subject", opts.Subject, "durable", opts.Durable, "error", err)
 			if nakErr := nakMessage(message); nakErr != nil {
+				recordSpanError(span, nakErr)
 				opts.loggerOrDefault().Error("consumer nak failed", "subject", opts.Subject, "durable", opts.Durable, "error", nakErr)
 			}
 			return
 		}
 		if err := ackMessage(message); err != nil {
+			recordSpanError(span, err)
 			opts.loggerOrDefault().Error("consumer ack failed", "subject", opts.Subject, "durable", opts.Durable, "error", err)
 		}
 	}, opts.subscribeOptions()...)
