@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -117,13 +118,16 @@ func Subscribe(ctx context.Context, natsURL string, opts ConsumerOptions, handle
 	}
 
 	subscription, err := js.QueueSubscribe(opts.Subject, opts.queueName(), func(message *nats.Msg) {
-		handlerCtx, span := startMessagingSpan(
-			extractMessageContext(context.Background(), message),
-			"nats.process",
-			trace.SpanKindConsumer,
-			opts.Subject,
-			semconv.MessagingDestinationSubscriptionName(opts.queueName()),
-		)
+		parentCtx := extractMessageContext(message)
+		options := []trace.SpanStartOption{
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(append(processSpanAttributes(opts.Subject), semconv.MessagingDestinationSubscriptionName(opts.queueName()))...),
+		}
+		if parent := trace.SpanContextFromContext(parentCtx); parent.IsValid() {
+			options = append(options, trace.WithLinks(trace.Link{SpanContext: parent}))
+		}
+
+		handlerCtx, span := otel.Tracer(propagationTracerName).Start(parentCtx, "nats.process", options...)
 		defer span.End()
 
 		if err := handler(handlerCtx, message); err != nil {
