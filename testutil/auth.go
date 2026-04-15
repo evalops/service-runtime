@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"context"
 	"strings"
 	"testing"
 )
@@ -36,7 +37,7 @@ func NewAuthenticatedRequest(t *testing.T, method, target, orgID, scope string, 
 		reader = strings.NewReader(body[0])
 	}
 
-	request := httptest.NewRequest(method, target, reader)
+	request := httptest.NewRequestWithContext(context.Background(), method, target, reader)
 	tokenClaims := map[string]any{
 		"sub":             "test-subject",
 		"organization_id": strings.TrimSpace(orgID),
