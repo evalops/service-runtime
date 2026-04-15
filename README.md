@@ -758,6 +758,7 @@ That action:
 - exports `GOPROXY=direct`
 - configures authenticated `git` access for private `github.com/evalops/*` modules using the workflow token
 - optionally runs `go mod download`
+- can optionally run `go test`, `golangci-lint`, `gosec`, and `govulncheck`
 
 Useful knobs:
 
@@ -767,6 +768,51 @@ Useful knobs:
 - `cache=false` when a workflow manages its own Go cache, such as sharded `cerebro` jobs
 - `cache-dependency-path` when the `go.sum` file is not at repo root
 - `check-latest=true` when a repo intentionally tracks the latest patch release in CI
+- `run-go-test=true` plus `go-test-race=true` to standardize race-enabled test jobs
+- `run-golangci-lint=true` plus `golangci-lint-args="--timeout=5m ./..."` to reuse the shared lint bootstrap
+- `run-gosec=true` and `run-govulncheck=true` for the shared security job
+
+A typical service workflow can now dogfood the shared action directly:
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - uses: actions/checkout@v6
+      - uses: evalops/service-runtime/.github/actions/setup-go-service@main
+        with:
+          cache: false
+          run-go-test: "true"
+          go-test-race: "true"
+          go-test-args: "./... -count=1"
+
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - uses: actions/checkout@v6
+      - uses: evalops/service-runtime/.github/actions/setup-go-service@main
+        with:
+          cache: false
+          run-golangci-lint: "true"
+          golangci-lint-args: "--timeout=5m ./..."
+
+  security:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - uses: actions/checkout@v6
+      - uses: evalops/service-runtime/.github/actions/setup-go-service@main
+        with:
+          cache: false
+          run-gosec: "true"
+          run-govulncheck: "true"
+```
 
 ### GitHub Actions image publishing
 
@@ -909,6 +955,19 @@ enabled linters catch type-assertion errors (`errcheck`), shadow variables
 (`govet`), dead code (`staticcheck`, `unused`), and security patterns
 (`gosec`), among others.
 
+The org-standard core set is:
+
+- `errcheck`
+- `govet`
+- `staticcheck`
+- `unused`
+- `ineffassign`
+- `gosec`
+
+This repository's [.golangci.yml](./.golangci.yml) is the reference config for
+services that want the fuller EvalOps baseline, including the standard `5m`
+timeout used by larger repos.
+
 ### Test
 
 ```bash
@@ -924,6 +983,20 @@ To bring the same lint and hook setup to another EvalOps service:
 1. Copy `.golangci.yml`, `Makefile`, and `scripts/pre-commit` from this repo.
 2. Run `make install-hooks`.
 3. Adjust linter settings in `.golangci.yml` if the service has different needs.
+
+To audit workflow adoption across a local checkout of EvalOps repos, run:
+
+```bash
+scripts/audit-ci-adoption.sh /path/to/Projects
+```
+
+The default priority rollout order for stronger CI gates is:
+
+- `asb`
+- `keys`
+- `identity`
+- `gate`
+- `audit`
 
 For schema migrations specifically:
 

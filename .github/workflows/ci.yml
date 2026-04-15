@@ -11,43 +11,55 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Set up Go and run tests
+        uses: ./.github/actions/setup-go-service
         with:
-          go-version: "1.26"
+          go-version: "1.26.2"
           cache: false
-
-      - name: Test
-        env:
-          GOFLAGS: -mod=vendor
-        run: go test ./... -count=1 -race
+          run-go-test: "true"
+          go-test-race: "true"
+          go-test-args: "./... -count=1"
 
       - name: Build
-        env:
-          GOFLAGS: -mod=vendor
         run: go build ./...
 
   lint:
     runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Set up Go and run golangci-lint
+        uses: ./.github/actions/setup-go-service
         with:
-          go-version: "1.26"
+          go-version: "1.26.2"
           cache: false
+          run-golangci-lint: "true"
+          golangci-lint-args: "--timeout=5m ./..."
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+  security:
+    runs-on: ubuntu-latest
+    env:
+      GOFLAGS: -mod=vendor
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go and run security scans
+        uses: ./.github/actions/setup-go-service
         with:
-          version: v2.11.3
-          args: --timeout=5m
+          go-version: "1.26.2"
+          cache: false
+          run-gosec: "true"
+          run-govulncheck: "true"
 
   builder-image:
     runs-on: ubuntu-latest

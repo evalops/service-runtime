@@ -30,6 +30,54 @@ inputs:
     description: Whether to run go mod download after configuring Go.
     required: false
     default: "true"
+  run-go-test:
+    description: Whether to run go test after configuring Go.
+    required: false
+    default: "false"
+  go-test-race:
+    description: Whether the shared go test step should enable the race detector.
+    required: false
+    default: "false"
+  go-test-args:
+    description: Arguments appended to go test.
+    required: false
+    default: "./... -count=1"
+  run-golangci-lint:
+    description: Whether to install and run golangci-lint.
+    required: false
+    default: "false"
+  golangci-lint-version:
+    description: golangci-lint version passed to go install.
+    required: false
+    default: "v2.11.3"
+  golangci-lint-args:
+    description: Arguments appended to golangci-lint run.
+    required: false
+    default: "--timeout=5m ./..."
+  run-gosec:
+    description: Whether to install and run gosec.
+    required: false
+    default: "false"
+  gosec-version:
+    description: gosec version passed to go install.
+    required: false
+    default: "v2.25.0"
+  gosec-args:
+    description: Arguments appended to gosec.
+    required: false
+    default: "-exclude-generated ./..."
+  run-govulncheck:
+    description: Whether to install and run govulncheck.
+    required: false
+    default: "false"
+  govulncheck-version:
+    description: govulncheck module version passed to go install.
+    required: false
+    default: "v1.2.0"
+  govulncheck-args:
+    description: Arguments appended to govulncheck.
+    required: false
+    default: "./..."
 
 runs:
   using: composite
@@ -75,4 +123,67 @@ runs:
       if: ${{ inputs.download == 'true' }}
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        GOFLAGS: -mod=mod
       run: go mod download
+
+    - name: Configure shared Go tool cache
+      if: ${{ inputs.run-golangci-lint == 'true' || inputs.run-gosec == 'true' || inputs.run-govulncheck == 'true' }}
+      shell: bash
+      run: |
+        tool_bin="${RUNNER_TEMP}/setup-go-service-tools"
+        mkdir -p "$tool_bin"
+        echo "$tool_bin" >> "$GITHUB_PATH"
+
+    - name: Install golangci-lint
+      if: ${{ inputs.run-golangci-lint == 'true' }}
+      shell: bash
+      env:
+        GOBIN: ${{ runner.temp }}/setup-go-service-tools
+        GOFLAGS: -mod=mod
+      run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${{ inputs.golangci-lint-version }}
+
+    - name: Install gosec
+      if: ${{ inputs.run-gosec == 'true' }}
+      shell: bash
+      env:
+        GOBIN: ${{ runner.temp }}/setup-go-service-tools
+        GOFLAGS: -mod=mod
+      run: go install github.com/securego/gosec/v2/cmd/gosec@${{ inputs.gosec-version }}
+
+    - name: Install govulncheck
+      if: ${{ inputs.run-govulncheck == 'true' }}
+      shell: bash
+      env:
+        GOBIN: ${{ runner.temp }}/setup-go-service-tools
+        GOFLAGS: -mod=mod
+      run: go install golang.org/x/vuln/cmd/govulncheck@${{ inputs.govulncheck-version }}
+
+    - name: Run go test
+      if: ${{ inputs.run-go-test == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ "${{ inputs.go-test-race }}" = "true" ]; then
+          go test -race ${{ inputs.go-test-args }}
+          exit 0
+        fi
+        go test ${{ inputs.go-test-args }}
+
+    - name: Run golangci-lint
+      if: ${{ inputs.run-golangci-lint == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: golangci-lint run ${{ inputs.golangci-lint-args }}
+
+    - name: Run gosec
+      if: ${{ inputs.run-gosec == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: gosec ${{ inputs.gosec-args }}
+
+    - name: Run govulncheck
+      if: ${{ inputs.run-govulncheck == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: govulncheck ${{ inputs.govulncheck-args }}
