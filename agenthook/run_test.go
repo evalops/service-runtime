@@ -473,3 +473,26 @@ func (stub *stubApprovalClient) GetApproval(_ context.Context, request *connect.
 	}
 	return connect.NewResponse(stub.getResponses[index]), nil
 }
+
+func TestExecuteFailsClosedOnNilStdin(t *testing.T) {
+	t.Setenv("EVALOPS_GOVERNANCE_URL", "https://governance.example")
+	t.Setenv("EVALOPS_WORKSPACE_ID", "ws_123")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := Execute(context.Background(), []string{"governance-check"}, nil, &stdout, &stderr)
+	if exitCode != 2 {
+		t.Fatalf("Execute() exit code = %d, want 2", exitCode)
+	}
+
+	var decision PermissionDecision
+	if err := json.Unmarshal(stdout.Bytes(), &decision); err != nil {
+		t.Fatalf("decode deny decision: %v", err)
+	}
+	if decision.PermissionDecision != "deny" {
+		t.Fatalf("permissionDecision = %q, want deny", decision.PermissionDecision)
+	}
+	if !strings.Contains(decision.PermissionDecisionReason, "read_stdin") {
+		t.Fatalf("permissionDecisionReason = %q, want read_stdin mention", decision.PermissionDecisionReason)
+	}
+}

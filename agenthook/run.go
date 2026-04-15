@@ -73,6 +73,9 @@ func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		return encodeDecision(stdout, stderr, denyDecision(fmt.Sprintf("hook bootstrap failed: %v", err)))
 	}
 
+	if stdin == nil {
+		return encodeDecision(stdout, stderr, denyDecision("read_stdin: input is nil"))
+	}
 	payload, err := io.ReadAll(stdin)
 	if err != nil {
 		return encodeDecision(stdout, stderr, denyDecision(fmt.Sprintf("read_stdin: %v", err)))
