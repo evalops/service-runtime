@@ -68,6 +68,49 @@ func TestPublishInjectsTraceHeadersForJSONWireFormatAndStartsProducerSpan(t *tes
 	}
 }
 
+func TestReliablePublishInjectsTraceHeadersAndStartsProducerSpan(t *testing.T) {
+	recorder := installNATSBusTelemetry(t)
+
+	js := &reliableFakeJetStream{}
+	reliable := newTestReliablePublisher(t, js, ReliableOptions{})
+
+	ctx, root := otel.Tracer("natsbus-test").Start(context.Background(), "root")
+	rootContext := trace.SpanContextFromContext(ctx)
+
+	err := reliable.Publish(ctx, testReliableChange(7))
+	root.End()
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	messages := js.Messages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 published message, got %d", len(messages))
+	}
+	if got := messages[0].Header.Get(headerTraceParent); got == "" {
+		t.Fatal("expected traceparent header on published message")
+	}
+
+	producer := waitForEndedSpan(t, recorder, "nats.publish")
+	if got, want := producer.SpanKind(), trace.SpanKindProducer; got != want {
+		t.Fatalf("producer span kind = %v, want %v", got, want)
+	}
+	if got, want := producer.Parent().SpanID(), rootContext.SpanID(); got != want {
+		t.Fatalf("producer parent span id = %s, want %s", got, want)
+	}
+
+	propagated := trace.SpanContextFromContext(extractMessageContext(context.Background(), messages[0]))
+	if !propagated.IsValid() {
+		t.Fatal("expected trace context on published message")
+	}
+	if got, want := propagated.TraceID(), rootContext.TraceID(); got != want {
+		t.Fatalf("propagated trace id = %s, want %s", got, want)
+	}
+	if got, want := propagated.SpanID(), producer.SpanContext().SpanID(); got != want {
+		t.Fatalf("propagated span id = %s, want %s", got, want)
+	}
+}
+
 func TestPublishSubscribeRoundTripPropagatesTraceContextAndStartsConsumerSpan(t *testing.T) {
 	recorder := installNATSBusTelemetry(t)
 

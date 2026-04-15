@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -157,12 +158,18 @@ func (publisher *ReliablePublisher) Publish(ctx context.Context, change Change) 
 		return ErrPublisherNil
 	}
 
+	subject := change.subject(publisher.publisher.subjectPrefix)
+	ctx, span := startMessagingSpan(ctx, "nats.publish", trace.SpanKindProducer, subject)
+	defer span.End()
+
 	message, err := publisher.publisher.buildMessage(ctx, change)
 	if err != nil {
+		recordSpanError(span, err)
 		return err
 	}
 
 	if err := publisher.publishMessage(ctx, message); err != nil {
+		recordSpanError(span, err)
 		return publisher.handleDeadLetter(message, err)
 	}
 
