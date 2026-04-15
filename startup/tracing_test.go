@@ -13,6 +13,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -71,6 +72,45 @@ func TestTracingConfigFromEnvUsesSamplerArg(t *testing.T) {
 	}
 	if cfg.SampleRatio != 0.5 {
 		t.Fatalf("unexpected sample ratio %v", cfg.SampleRatio)
+	}
+}
+
+func TestTracingConfigFromEnvParsesScientificNotationRatios(t *testing.T) {
+	testCases := []struct {
+		name        string
+		rawSampler  string
+		wantSampler string
+		wantRatio   float64
+	}{
+		{
+			name:        "bare ratio",
+			rawSampler:  "1e-3",
+			wantSampler: "parentbased_traceidratio",
+			wantRatio:   1e-3,
+		},
+		{
+			name:        "inline ratio",
+			rawSampler:  "traceidratio:1e-3",
+			wantSampler: "traceidratio",
+			wantRatio:   1e-3,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("OTEL_TRACES_SAMPLER", testCase.rawSampler)
+
+			cfg, err := TracingConfigFromEnv("runtime-test")
+			if err != nil {
+				t.Fatalf("expected scientific notation ratio to parse, got %v", err)
+			}
+			if cfg.Sampler != testCase.wantSampler {
+				t.Fatalf("unexpected sampler %q", cfg.Sampler)
+			}
+			if cfg.SampleRatio != testCase.wantRatio {
+				t.Fatalf("unexpected sample ratio %v", cfg.SampleRatio)
+			}
+		})
 	}
 }
 
@@ -166,6 +206,43 @@ func TestInitTracingExportsSpansAndRestoresGlobals(t *testing.T) {
 	}
 }
 
+func TestInitTracingShutsDownExporterOnResourceError(t *testing.T) {
+	exporter := &recordingSpanExporter{}
+	stubOTLPTraceExporter(t, exporter, nil)
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "invalid")
+
+	_, err := InitTracing(context.Background(), TracingConfig{
+		Endpoint:    "http://tempo:4318",
+		ServiceName: "runtime-test",
+		Sampler:     "always_on",
+		SampleRatio: 1,
+	})
+	if err == nil {
+		t.Fatal("expected invalid resource attributes to fail")
+	}
+	if !exporter.shutdownCalled {
+		t.Fatal("expected exporter shutdown on resource initialization error")
+	}
+}
+
+func TestInitTracingShutsDownExporterOnSamplerError(t *testing.T) {
+	exporter := &recordingSpanExporter{}
+	stubOTLPTraceExporter(t, exporter, nil)
+
+	_, err := InitTracing(context.Background(), TracingConfig{
+		Endpoint:    "http://tempo:4318",
+		ServiceName: "runtime-test",
+		Sampler:     "invalid",
+		SampleRatio: 1,
+	})
+	if err == nil {
+		t.Fatal("expected invalid sampler to fail")
+	}
+	if !exporter.shutdownCalled {
+		t.Fatal("expected exporter shutdown on sampler initialization error")
+	}
+}
+
 func TestLifecycleShutdownRunsHooksInReverseOrder(t *testing.T) {
 	lifecycle := NewLifecycle()
 	order := make([]string, 0, 2)
@@ -223,6 +300,31 @@ func TestLifecycleEnableTracingFromEnvRegistersShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for lifecycle-registered trace export")
 	}
+}
+
+type recordingSpanExporter struct {
+	shutdownCalled bool
+}
+
+func (e *recordingSpanExporter) ExportSpans(context.Context, []sdktrace.ReadOnlySpan) error {
+	return nil
+}
+
+func (e *recordingSpanExporter) Shutdown(context.Context) error {
+	e.shutdownCalled = true
+	return nil
+}
+
+func stubOTLPTraceExporter(t *testing.T, exporter sdktrace.SpanExporter, err error) {
+	t.Helper()
+
+	original := newOTLPTraceExporter
+	newOTLPTraceExporter = func(context.Context, string) (sdktrace.SpanExporter, error) {
+		return exporter, err
+	}
+	t.Cleanup(func() {
+		newOTLPTraceExporter = original
+	})
 }
 
 type traceRequest struct {

@@ -2,6 +2,7 @@ package startup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -27,6 +28,13 @@ const (
 	// DefaultTraceExportTimeout is the default per-batch export timeout.
 	DefaultTraceExportTimeout = 5 * time.Second
 )
+
+var newOTLPTraceExporter = func(ctx context.Context, endpoint string) (sdktrace.SpanExporter, error) {
+	return otlptracehttp.New(
+		ctx,
+		otlptracehttp.WithEndpointURL(endpoint),
+	)
+}
 
 // TracingConfig controls shared OpenTelemetry tracer bootstrap.
 type TracingConfig struct {
@@ -83,10 +91,7 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (ShutdownFunc, error) {
 		serviceName = defaultTracingServiceName
 	}
 
-	exporter, err := otlptracehttp.New(
-		ctx,
-		otlptracehttp.WithEndpointURL(strings.TrimSpace(cfg.Endpoint)),
-	)
+	exporter, err := newOTLPTraceExporter(ctx, strings.TrimSpace(cfg.Endpoint))
 	if err != nil {
 		return nil, fmt.Errorf("initialize otlp trace exporter: %w", err)
 	}
@@ -101,12 +106,12 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (ShutdownFunc, error) {
 		resource.WithAttributes(semconv.ServiceName(serviceName)),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("initialize otel resource: %w", err)
+		return nil, shutdownTracingExporter(ctx, exporter, fmt.Errorf("initialize otel resource: %w", err))
 	}
 
 	sampler, err := tracingSampler(cfg)
 	if err != nil {
-		return nil, err
+		return nil, shutdownTracingExporter(ctx, exporter, err)
 	}
 
 	batchTimeout := cfg.BatchTimeout
@@ -145,6 +150,13 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (ShutdownFunc, error) {
 		otel.SetTextMapPropagator(previousPropagator)
 		return err
 	}, nil
+}
+
+func shutdownTracingExporter(ctx context.Context, exporter sdktrace.SpanExporter, err error) error {
+	if shutdownErr := exporter.Shutdown(ctx); shutdownErr != nil {
+		return errors.Join(err, fmt.Errorf("shutdown otlp trace exporter: %w", shutdownErr))
+	}
+	return err
 }
 
 // EnableTracingFromEnv configures tracing from OTEL env vars and registers the shutdown hook.
@@ -186,7 +198,7 @@ func tracingSampler(cfg TracingConfig) (sdktrace.Sampler, error) {
 }
 
 func parseTracingSampler(raw, rawArg string) (string, float64, error) {
-	raw = normalizeSampler(raw)
+	raw = strings.TrimSpace(strings.ToLower(raw))
 	rawArg = strings.TrimSpace(rawArg)
 
 	if raw == "" {
@@ -205,9 +217,11 @@ func parseTracingSampler(raw, rawArg string) (string, float64, error) {
 		return sampler, ratio, nil
 	}
 
-	switch raw {
+	normalizedRaw := normalizeSampler(raw)
+
+	switch normalizedRaw {
 	case "always_on", "always_off":
-		return raw, defaultTracingRatio, nil
+		return normalizedRaw, defaultTracingRatio, nil
 	case "traceidratio", "parentbased_traceidratio":
 		ratio := defaultTracingRatio
 		if rawArg != "" {
@@ -223,7 +237,7 @@ func parseTracingSampler(raw, rawArg string) (string, float64, error) {
 		if err := validateTracingRatio(ratio); err != nil {
 			return "", 0, err
 		}
-		return raw, ratio, nil
+		return normalizedRaw, ratio, nil
 	default:
 		return "", 0, fmt.Errorf("unsupported OTEL_TRACES_SAMPLER %q", raw)
 	}
