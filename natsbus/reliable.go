@@ -20,7 +20,11 @@ import (
 )
 
 const (
-	DefaultReliableReplayInterval  = 5 * time.Second
+	// DefaultReliableReplayInterval is the default cadence for replaying queued
+	// dead-letter messages after publish failures.
+	DefaultReliableReplayInterval = 5 * time.Second
+	// DefaultReliableReplayBatchSize is the default maximum number of dead-letter
+	// messages replayed in a single pass.
 	DefaultReliableReplayBatchSize = 100
 	defaultReliableReplayTimeout   = 30 * time.Second
 )
@@ -430,7 +434,7 @@ func (queue *fileDeadLetterQueue) list(limit int) ([]deadLetterEntry, error) {
 
 	entries := make([]deadLetterEntry, 0, len(paths))
 	for _, path := range paths {
-		body, err := os.ReadFile(path)
+		body, err := os.ReadFile(path) //nolint:gosec // Path is enumerated from queue.baseDir via filepath.WalkDir above.
 		if err != nil {
 			return nil, fmt.Errorf("read dead-letter file %s: %w", path, err)
 		}
