@@ -21,8 +21,6 @@ import (
 )
 
 func TestConnectWithOptionsCreatesConfiguredStream(t *testing.T) {
-	t.Parallel()
-
 	originalConnect := connectNATS
 	originalNewJetStream := newJetStream
 	t.Cleanup(func() {
@@ -727,8 +725,6 @@ func TestUnmarshalPayloadRejectsNilTarget(t *testing.T) {
 }
 
 func TestSubscribeConfiguresDurableQueueConsumer(t *testing.T) {
-	t.Parallel()
-
 	originalConnect := connectNATS
 	originalNewConsumerJetStream := newConsumerJetStream
 	originalCloseConnection := closeConnection
@@ -795,8 +791,6 @@ func TestConsumerSubscribeOptionsFallbackToDeliverNew(t *testing.T) {
 }
 
 func TestSubscribeAcksAndNaksHandlerResults(t *testing.T) {
-	t.Parallel()
-
 	originalConnect := connectNATS
 	originalNewConsumerJetStream := newConsumerJetStream
 	originalAckMessage := ackMessage

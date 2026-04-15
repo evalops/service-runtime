@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"time"
 
+	runtimemigrate "github.com/evalops/service-runtime/migrate"
 	"github.com/evalops/service-runtime/startup"
 )
 
@@ -20,6 +22,8 @@ type Options struct {
 }
 
 var sqlOpen = sql.Open
+var runMigrations = runtimemigrate.Run
+var runIOFSMigrations = runtimemigrate.RunIOFS
 
 // Open connects to a Postgres database, waiting for it to become ready.
 func Open(ctx context.Context, databaseURL string, opts Options) (*sql.DB, error) {
@@ -55,6 +59,61 @@ func OpenAndInit(ctx context.Context, databaseURL string, init InitFunc, opts Op
 	}
 
 	return db, nil
+}
+
+// OpenAndMigrate connects to Postgres, applies file-based migrations, and then calls init.
+func OpenAndMigrate(
+	ctx context.Context,
+	databaseURL string,
+	migrationsDir string,
+	migrateOpts runtimemigrate.Options,
+	init InitFunc,
+	opts Options,
+) (*sql.DB, runtimemigrate.Result, error) {
+	var result runtimemigrate.Result
+	db, err := OpenAndInit(ctx, databaseURL, func(ctx context.Context, db *sql.DB) error {
+		applied, err := runMigrations(ctx, db, migrationsDir, migrateOpts)
+		if err != nil {
+			return err
+		}
+		result = applied
+		if init != nil {
+			return init(ctx, db)
+		}
+		return nil
+	}, opts)
+	if err != nil {
+		return nil, runtimemigrate.Result{}, err
+	}
+	return db, result, nil
+}
+
+// OpenAndMigrateIOFS connects to Postgres, applies embedded io/fs migrations, and then calls init.
+func OpenAndMigrateIOFS(
+	ctx context.Context,
+	databaseURL string,
+	fsys fs.FS,
+	path string,
+	migrateOpts runtimemigrate.Options,
+	init InitFunc,
+	opts Options,
+) (*sql.DB, runtimemigrate.Result, error) {
+	var result runtimemigrate.Result
+	db, err := OpenAndInit(ctx, databaseURL, func(ctx context.Context, db *sql.DB) error {
+		applied, err := runIOFSMigrations(ctx, db, fsys, path, migrateOpts)
+		if err != nil {
+			return err
+		}
+		result = applied
+		if init != nil {
+			return init(ctx, db)
+		}
+		return nil
+	}, opts)
+	if err != nil {
+		return nil, runtimemigrate.Result{}, err
+	}
+	return db, result, nil
 }
 
 func withDefaults(opts Options) Options {
