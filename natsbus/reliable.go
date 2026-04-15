@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/evalops/service-runtime/resilience"
@@ -20,63 +21,72 @@ import (
 )
 
 const (
-	// DefaultReliableReplayInterval is the default cadence for replaying queued
-	// dead-letter messages after publish failures.
-	DefaultReliableReplayInterval = 5 * time.Second
-	// DefaultReliableReplayBatchSize is the default maximum number of dead-letter
-	// messages replayed in a single pass.
-	DefaultReliableReplayBatchSize = 100
-	defaultReliableReplayTimeout   = 30 * time.Second
+	defaultReplayInterval  = 30 * time.Second
+	defaultReplayBatchSize = 10
 )
 
 var errDeadLetterDirRequired = errors.New("dead_letter_dir_required")
 
-// ReliableOptions configures a ReliablePublisher connection and replay loop.
+// ReliableOptions configures retry, circuit breaking, and dead-letter replay
+// for a ReliablePublisher.
 type ReliableOptions struct {
-	Publisher       Options
-	DeadLetterDir   string
-	ReplayInterval  time.Duration
-	ReplayBatchSize int
-	Retry           resilience.RetryConfig
-	Breaker         resilience.BreakerConfig
-	Registerer      prometheus.Registerer
+	PublisherOptions Options
+	Retry            resilience.RetryConfig
+	Breaker          resilience.BreakerConfig
+	Registerer       prometheus.Registerer
+	DeadLetterDir    string
+	ReplayInterval   time.Duration
+	ReplayBatchSize  int
+	Clock            func() time.Time
 }
 
-// ReliablePublisher wraps a Publisher with retry, circuit breaking, and
-// dead-letter replay for publish failures.
+func (opts ReliableOptions) withDefaults() ReliableOptions {
+	if opts.Registerer == nil {
+		opts.Registerer = prometheus.DefaultRegisterer
+	}
+	if opts.ReplayInterval <= 0 {
+		opts.ReplayInterval = defaultReplayInterval
+	}
+	if opts.ReplayBatchSize < 1 {
+		opts.ReplayBatchSize = defaultReplayBatchSize
+	}
+	if opts.Clock == nil {
+		opts.Clock = time.Now
+	}
+	return opts
+}
+
+// ReliablePublisher wraps Publisher with retry, circuit breaking, durable
+// dead-letter persistence, and background replay.
 type ReliablePublisher struct {
 	publisher       *Publisher
-	logger          *slog.Logger
-	deadLetters     *fileDeadLetterQueue
+	retryCfg        resilience.RetryConfig
 	breaker         *resilience.Breaker
-	retryConfig     resilience.RetryConfig
+	deadLetters     *deadLetterStore
+	metrics         *reliableMetrics
+	logger          *slog.Logger
 	replayInterval  time.Duration
 	replayBatchSize int
-	metrics         *reliableMetrics
-	replaySignal    chan struct{}
-	stopCh          chan struct{}
-	doneCh          chan struct{}
-	closeOnce       sync.Once
+	clock           func() time.Time
+
+	cancel func()
+	wg     sync.WaitGroup
 }
 
-// ConnectReliable connects to NATS and wraps the publisher with retry,
-// circuit-breaking, and dead-letter replay.
-func ConnectReliable(ctx context.Context, natsURL, streamName, subjectPrefix string, logger *slog.Logger, deadLetterDir string) (*ReliablePublisher, error) {
-	return ConnectReliableWithOptions(ctx, natsURL, streamName, subjectPrefix, ReliableOptions{
-		Publisher:     Options{Logger: logger},
-		DeadLetterDir: deadLetterDir,
-	})
-}
+// ConnectReliable connects to NATS and returns a ReliablePublisher using the
+// provided dead-letter directory and replay settings.
+func ConnectReliable(ctx context.Context, natsURL, streamName, subjectPrefix string, opts ReliableOptions) (*ReliablePublisher, error) {
+	opts = opts.withDefaults()
+	if strings.TrimSpace(opts.DeadLetterDir) == "" {
+		return nil, errDeadLetterDirRequired
+	}
 
-// ConnectReliableWithOptions is like ConnectReliable but accepts a full
-// ReliableOptions struct.
-func ConnectReliableWithOptions(ctx context.Context, natsURL, streamName, subjectPrefix string, opts ReliableOptions) (*ReliablePublisher, error) {
-	publisher, err := ConnectWithOptions(ctx, natsURL, streamName, subjectPrefix, opts.Publisher)
+	publisher, err := ConnectWithOptions(ctx, natsURL, streamName, subjectPrefix, opts.PublisherOptions)
 	if err != nil {
 		return nil, err
 	}
 
-	reliable, err := newReliablePublisher(publisher, opts)
+	reliable, err := NewReliablePublisher(publisher, opts)
 	if err != nil {
 		publisher.Close()
 		return nil, err
@@ -84,57 +94,65 @@ func ConnectReliableWithOptions(ctx context.Context, natsURL, streamName, subjec
 	return reliable, nil
 }
 
-func newReliablePublisher(publisher *Publisher, opts ReliableOptions) (*ReliablePublisher, error) {
-	if publisher == nil {
+// NewReliablePublisher wraps an existing Publisher with retry, dead-lettering,
+// and replay support.
+func NewReliablePublisher(publisher *Publisher, opts ReliableOptions) (*ReliablePublisher, error) {
+	opts = opts.withDefaults()
+	if strings.TrimSpace(opts.DeadLetterDir) == "" {
+		return nil, errDeadLetterDirRequired
+	}
+	if publisher == nil || publisher.js == nil {
 		return nil, ErrPublisherNil
 	}
-	opts = opts.withDefaults()
 
-	deadLetters, err := newFileDeadLetterQueue(opts.DeadLetterDir)
+	store, err := newDeadLetterStore(opts.DeadLetterDir, opts.Clock)
 	if err != nil {
 		return nil, err
 	}
 	metrics, err := newReliableMetrics(opts.Registerer)
 	if err != nil {
-		return nil, fmt.Errorf("register reliable nats metrics: %w", err)
+		return nil, err
 	}
+	metrics.setDeadLetterSize(store.Count())
 
 	reliable := &ReliablePublisher{
 		publisher:       publisher,
-		logger:          publisher.loggerOrDefault(),
-		deadLetters:     deadLetters,
+		retryCfg:        opts.Retry,
 		breaker:         resilience.NewBreaker(opts.Breaker),
-		retryConfig:     opts.Retry,
+		deadLetters:     store,
+		metrics:         metrics,
+		logger:          publisher.loggerOrDefault(),
 		replayInterval:  opts.ReplayInterval,
 		replayBatchSize: opts.ReplayBatchSize,
-		metrics:         metrics,
-		replaySignal:    make(chan struct{}, 1),
-		stopCh:          make(chan struct{}),
-		doneCh:          make(chan struct{}),
+		clock:           opts.Clock,
 	}
-	reliable.updateDeadLetterMetric()
-	go reliable.replayLoop()
+
+	replayCtx, cancel := context.WithCancel(context.Background())
+	reliable.cancel = cancel
+	reliable.wg.Add(1)
+	go reliable.replayLoop(replayCtx)
+
 	return reliable, nil
 }
 
-// Close stops the replay loop and closes the underlying NATS connection.
+// Close stops background replay and closes the underlying publisher.
 func (publisher *ReliablePublisher) Close() {
 	if publisher == nil {
 		return
 	}
-	publisher.closeOnce.Do(func() {
-		close(publisher.stopCh)
-		<-publisher.doneCh
-		if publisher.publisher != nil {
-			publisher.publisher.Close()
-		}
-	})
+	if publisher.cancel != nil {
+		publisher.cancel()
+	}
+	publisher.wg.Wait()
+	if publisher.publisher != nil {
+		publisher.publisher.Close()
+	}
 }
 
-// Publish attempts to publish a change event, then falls back to a local
-// dead-letter queue for replay if JetStream remains unavailable.
+// Publish encodes, retries, and publishes change. On final failure it persists
+// the exact NATS message to a dead-letter queue for replay.
 func (publisher *ReliablePublisher) Publish(ctx context.Context, change Change) error {
-	if publisher == nil || publisher.publisher == nil {
+	if publisher == nil || publisher.publisher == nil || publisher.publisher.js == nil {
 		return ErrPublisherNil
 	}
 
@@ -142,182 +160,144 @@ func (publisher *ReliablePublisher) Publish(ctx context.Context, change Change) 
 	if err != nil {
 		return err
 	}
+
 	if err := publisher.publishMessage(ctx, message); err != nil {
-		publisher.metrics.observePublishFailure(publisher.publisher.subjectPrefix)
-		if deadLetterErr := publisher.deadLetters.enqueue(message, err); deadLetterErr != nil {
-			return errors.Join(err, fmt.Errorf("enqueue dead letter: %w", deadLetterErr))
-		}
-		publisher.updateDeadLetterMetric()
-		publisher.signalReplay()
-		return fmt.Errorf("publish %s queued for replay: %w", message.Subject, err)
+		return publisher.handleDeadLetter(message, err)
 	}
+
+	publisher.logger.Debug("published reliable change event", "seq", change.Sequence, "subject", message.Subject)
 	return nil
 }
 
-// PublishChange is the best-effort form of Publish. Errors are logged and the
-// event is queued for replay when possible.
+// PublishChange preserves the ChangePublisher behaviour and logs final errors.
 func (publisher *ReliablePublisher) PublishChange(ctx context.Context, change Change) {
-	if publisher == nil || publisher.publisher == nil {
-		return
-	}
 	if err := publisher.Publish(ctx, change); err != nil {
-		publisher.loggerOrDefault().Error("failed to publish change event", "error", err, "seq", change.Sequence)
+		publisher.logger.Error("failed to publish reliable change event", "error", err, "seq", change.Sequence)
 	}
+}
+
+// ReplayPending attempts a single replay batch immediately.
+func (publisher *ReliablePublisher) ReplayPending(ctx context.Context) error {
+	if publisher == nil {
+		return ErrPublisherNil
+	}
+	return publisher.replayOnce(ctx)
+}
+
+func (publisher *ReliablePublisher) replayLoop(ctx context.Context) {
+	defer publisher.wg.Done()
+
+	ticker := time.NewTicker(publisher.replayInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := publisher.replayOnce(ctx); err != nil && !errors.Is(err, ErrPublisherNil) && !errors.Is(err, context.Canceled) {
+				publisher.logger.Warn("natsbus dead-letter replay failed", "error", err)
+			}
+		}
+	}
+}
+
+func (publisher *ReliablePublisher) replayOnce(ctx context.Context) error {
+	records, err := publisher.deadLetters.List(publisher.replayBatchSize)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range records {
+		if err := publisher.publishMessage(ctx, record.message()); err != nil {
+			return fmt.Errorf("replay dead letter %s: %w", filepath.Base(record.path), err)
+		}
+		if err := publisher.deadLetters.Delete(record.path); err != nil {
+			return err
+		}
+		publisher.metrics.setDeadLetterSize(publisher.deadLetters.Count())
+		publisher.logger.Debug("replayed natsbus dead letter", "path", record.path, "subject", record.Subject)
+	}
+	return nil
 }
 
 func (publisher *ReliablePublisher) publishMessage(ctx context.Context, message *nats.Msg) error {
 	return publisher.breaker.Do(ctx, func(ctx context.Context) error {
-		return resilience.Retry(ctx, publisher.retryConfig, func(ctx context.Context) error {
-			return publisher.publisher.publishPreparedMessage(ctx, cloneMessage(message))
+		return resilience.Retry(ctx, publisher.retryCfg, func(ctx context.Context) error {
+			_, err := publisher.publisher.js.PublishMsg(ctx, cloneMessage(message))
+			return err
 		})
 	})
 }
 
-func (publisher *ReliablePublisher) replayLoop() {
-	ticker := time.NewTicker(publisher.replayInterval)
-	defer ticker.Stop()
-	defer close(publisher.doneCh)
-
-	for {
-		select {
-		case <-publisher.stopCh:
-			return
-		case <-ticker.C:
-		case <-publisher.replaySignal:
-		}
-
-		replayCtx, cancel := context.WithTimeout(context.Background(), defaultReliableReplayTimeout)
-		err := publisher.replayPending(replayCtx)
-		cancel()
-		if err != nil {
-			publisher.loggerOrDefault().Warn("failed to replay nats dead letters", "error", err)
-		}
+func (publisher *ReliablePublisher) handleDeadLetter(message *nats.Msg, publishErr error) error {
+	publisher.metrics.recordPublishFailure()
+	record := deadLetterRecord{
+		ID:        uuid.NewString(),
+		CreatedAt: publisher.clock().UTC(),
+		Subject:   message.Subject,
+		Header:    cloneMessageHeader(message.Header),
+		Data:      append([]byte(nil), message.Data...),
+		LastError: publishErr.Error(),
 	}
-}
-
-func (publisher *ReliablePublisher) replayPending(ctx context.Context) error {
-	entries, err := publisher.deadLetters.list(publisher.replayBatchSize)
-	if err != nil {
-		return fmt.Errorf("list dead letters: %w", err)
+	if err := publisher.deadLetters.Save(record); err != nil {
+		return fmt.Errorf("publish %s failed: %w; persist dead letter: %v", message.Subject, publishErr, err)
 	}
-	if len(entries) == 0 {
-		publisher.updateDeadLetterMetric()
-		return nil
-	}
-
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := publisher.publishMessage(ctx, entry.message); err != nil {
-			publisher.updateDeadLetterMetric()
-			return fmt.Errorf("replay dead letter %s: %w", entry.path, err)
-		}
-		if err := publisher.deadLetters.delete(entry.path); err != nil {
-			publisher.updateDeadLetterMetric()
-			return fmt.Errorf("delete replayed dead letter %s: %w", entry.path, err)
-		}
-	}
-
-	publisher.updateDeadLetterMetric()
-	return nil
-}
-
-func (publisher *ReliablePublisher) signalReplay() {
-	select {
-	case publisher.replaySignal <- struct{}{}:
-	default:
-	}
-}
-
-func (publisher *ReliablePublisher) updateDeadLetterMetric() {
-	size, err := publisher.deadLetters.count()
-	if err != nil {
-		publisher.loggerOrDefault().Warn("failed to count nats dead letters", "error", err)
-		return
-	}
-	publisher.metrics.observeDeadLetterSize(publisher.publisher.subjectPrefix, float64(size))
-}
-
-func (publisher *ReliablePublisher) loggerOrDefault() *slog.Logger {
-	if publisher != nil && publisher.logger != nil {
-		return publisher.logger
-	}
-	if publisher != nil && publisher.publisher != nil {
-		return publisher.publisher.loggerOrDefault()
-	}
-	return slog.Default()
-}
-
-func (opts ReliableOptions) withDefaults() ReliableOptions {
-	opts.Publisher = opts.Publisher.withDefaults()
-	if opts.ReplayInterval <= 0 {
-		opts.ReplayInterval = DefaultReliableReplayInterval
-	}
-	if opts.ReplayBatchSize <= 0 {
-		opts.ReplayBatchSize = DefaultReliableReplayBatchSize
-	}
-	if opts.Registerer == nil {
-		opts.Registerer = prometheus.DefaultRegisterer
-	}
-	return opts
+	publisher.metrics.setDeadLetterSize(publisher.deadLetters.Count())
+	return fmt.Errorf("publish %s failed after retries and was dead-lettered: %w", message.Subject, publishErr)
 }
 
 type reliableMetrics struct {
-	publishFailures *prometheus.CounterVec
-	deadLetterSize  *prometheus.GaugeVec
+	publishFailuresTotal prometheus.Counter
+	deadLetterSize       prometheus.Gauge
 }
 
 func newReliableMetrics(registerer prometheus.Registerer) (*reliableMetrics, error) {
-	publishFailures, err := registerCounterVec(
+	failures, err := registerCounter(
 		registerer,
-		prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "natsbus_publish_failures_total",
-				Help: "Count of NATS change publish failures that fell back to dead-letter replay.",
-			},
-			[]string{"subject_prefix"},
-		),
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "natsbus_publish_failures_total",
+			Help: "Count of natsbus publish operations that exhausted retries and required dead-letter handling.",
+		}),
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	deadLetterSize, err := registerGaugeVec(
+	deadLetterSize, err := registerGauge(
 		registerer,
-		prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Name: "natsbus_dead_letter_size",
-				Help: "Current number of queued NATS dead-letter files awaiting replay.",
-			},
-			[]string{"subject_prefix"},
-		),
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "natsbus_dead_letter_size",
+			Help: "Count of natsbus dead-letter messages queued for replay.",
+		}),
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	return &reliableMetrics{
-		publishFailures: publishFailures,
-		deadLetterSize:  deadLetterSize,
+		publishFailuresTotal: failures,
+		deadLetterSize:       deadLetterSize,
 	}, nil
 }
 
-func (metrics *reliableMetrics) observePublishFailure(subjectPrefix string) {
-	metrics.publishFailures.WithLabelValues(subjectPrefix).Inc()
+func (metrics *reliableMetrics) recordPublishFailure() {
+	if metrics != nil && metrics.publishFailuresTotal != nil {
+		metrics.publishFailuresTotal.Inc()
+	}
 }
 
-func (metrics *reliableMetrics) observeDeadLetterSize(subjectPrefix string, size float64) {
-	metrics.deadLetterSize.WithLabelValues(subjectPrefix).Set(size)
+func (metrics *reliableMetrics) setDeadLetterSize(size int64) {
+	if metrics != nil && metrics.deadLetterSize != nil {
+		metrics.deadLetterSize.Set(float64(size))
+	}
 }
 
-func registerCounterVec(registerer prometheus.Registerer, collector *prometheus.CounterVec) (*prometheus.CounterVec, error) {
+func registerCounter(registerer prometheus.Registerer, collector prometheus.Counter) (prometheus.Counter, error) {
 	if err := registerer.Register(collector); err != nil {
 		alreadyRegistered, ok := err.(prometheus.AlreadyRegisteredError)
 		if !ok {
 			return nil, err
 		}
-		existing, ok := alreadyRegistered.ExistingCollector.(*prometheus.CounterVec)
+		existing, ok := alreadyRegistered.ExistingCollector.(prometheus.Counter)
 		if !ok {
 			return nil, err
 		}
@@ -326,13 +306,13 @@ func registerCounterVec(registerer prometheus.Registerer, collector *prometheus.
 	return collector, nil
 }
 
-func registerGaugeVec(registerer prometheus.Registerer, collector *prometheus.GaugeVec) (*prometheus.GaugeVec, error) {
+func registerGauge(registerer prometheus.Registerer, collector prometheus.Gauge) (prometheus.Gauge, error) {
 	if err := registerer.Register(collector); err != nil {
 		alreadyRegistered, ok := err.(prometheus.AlreadyRegisteredError)
 		if !ok {
 			return nil, err
 		}
-		existing, ok := alreadyRegistered.ExistingCollector.(*prometheus.GaugeVec)
+		existing, ok := alreadyRegistered.ExistingCollector.(prometheus.Gauge)
 		if !ok {
 			return nil, err
 		}
@@ -341,63 +321,66 @@ func registerGaugeVec(registerer prometheus.Registerer, collector *prometheus.Ga
 	return collector, nil
 }
 
-type fileDeadLetterQueue struct {
+type deadLetterStore struct {
 	baseDir string
-}
-
-type deadLetterEntry struct {
-	path    string
-	message *nats.Msg
+	clock   func() time.Time
+	count   atomic.Int64
 }
 
 type deadLetterRecord struct {
-	CreatedAt time.Time           `json:"created_at"`
-	LastError string              `json:"last_error,omitempty"`
-	Subject   string              `json:"subject"`
-	Header    map[string][]string `json:"header,omitempty"`
-	Data      []byte              `json:"data"`
+	ID        string      `json:"id"`
+	CreatedAt time.Time   `json:"created_at"`
+	Subject   string      `json:"subject"`
+	Header    nats.Header `json:"header,omitempty"`
+	Data      []byte      `json:"data,omitempty"`
+	LastError string      `json:"last_error,omitempty"`
 }
 
-func newFileDeadLetterQueue(baseDir string) (*fileDeadLetterQueue, error) {
-	baseDir = strings.TrimSpace(baseDir)
-	if baseDir == "" {
+type storedDeadLetter struct {
+	deadLetterRecord
+	path string
+}
+
+func newDeadLetterStore(baseDir string, clock func() time.Time) (*deadLetterStore, error) {
+	trimmed := strings.TrimSpace(baseDir)
+	if trimmed == "" {
 		return nil, errDeadLetterDirRequired
 	}
-	if err := os.MkdirAll(baseDir, 0o750); err != nil {
+	if err := os.MkdirAll(trimmed, 0o750); err != nil {
 		return nil, fmt.Errorf("create dead-letter dir: %w", err)
 	}
-	return &fileDeadLetterQueue{baseDir: baseDir}, nil
+	store := &deadLetterStore{baseDir: trimmed, clock: clock}
+	count, err := store.scanCount()
+	if err != nil {
+		return nil, err
+	}
+	store.count.Store(count)
+	return store, nil
 }
 
-func (queue *fileDeadLetterQueue) enqueue(message *nats.Msg, publishErr error) error {
-	record := deadLetterRecord{
-		CreatedAt: time.Now().UTC(),
-		Subject:   message.Subject,
-		Header:    headerMap(message.Header),
-		Data:      append([]byte(nil), message.Data...),
+func (store *deadLetterStore) Save(record deadLetterRecord) error {
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = store.clock().UTC()
 	}
-	if publishErr != nil {
-		record.LastError = publishErr.Error()
+	if strings.TrimSpace(record.ID) == "" {
+		record.ID = uuid.NewString()
 	}
 
-	dir := filepath.Join(queue.baseDir, record.CreatedAt.Format("2006-01-02"))
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("create dead-letter subdir: %w", err)
-	}
-
-	body, err := json.Marshal(record)
+	payload, err := json.Marshal(record)
 	if err != nil {
-		return fmt.Errorf("marshal dead-letter record: %w", err)
+		return fmt.Errorf("marshal dead letter: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(dir, "nats-dead-letter-*.tmp")
+	tmp, err := os.CreateTemp(store.baseDir, "natsbus-dead-letter-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create dead-letter temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
+	defer func() {
+		_ = os.Remove(tmpName)
+	}()
 
-	if _, err := tmp.Write(body); err != nil {
+	if _, err := tmp.Write(payload); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("write dead-letter temp file: %w", err)
 	}
@@ -405,98 +388,109 @@ func (queue *fileDeadLetterQueue) enqueue(message *nats.Msg, publishErr error) e
 		return fmt.Errorf("close dead-letter temp file: %w", err)
 	}
 
-	finalName := fmt.Sprintf("%s-%s.json", record.CreatedAt.Format("20060102T150405.000000000Z0700"), uuid.NewString())
-	if err := os.Rename(tmpName, filepath.Join(dir, finalName)); err != nil {
+	name := fmt.Sprintf("%s-%s.json", record.CreatedAt.UTC().Format("20060102T150405.000000000Z0700"), record.ID)
+	path := filepath.Join(store.baseDir, name)
+	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("finalize dead-letter file: %w", err)
 	}
+	store.count.Add(1)
 	return nil
 }
 
-func (queue *fileDeadLetterQueue) list(limit int) ([]deadLetterEntry, error) {
-	paths := make([]string, 0)
-	if err := filepath.WalkDir(queue.baseDir, func(path string, dirEntry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if dirEntry.IsDir() || filepath.Ext(path) != ".json" {
-			return nil
-		}
-		paths = append(paths, path)
-		return nil
-	}); err != nil {
-		return nil, err
+func (store *deadLetterStore) List(limit int) ([]storedDeadLetter, error) {
+	entries, err := os.ReadDir(store.baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("list dead letters: %w", err)
 	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
 
-	sort.Strings(paths)
-	if limit > 0 && len(paths) > limit {
-		paths = paths[:limit]
-	}
-
-	entries := make([]deadLetterEntry, 0, len(paths))
-	for _, path := range paths {
-		body, err := os.ReadFile(path) //nolint:gosec // Path is enumerated from queue.baseDir via filepath.WalkDir above.
+	records := make([]storedDeadLetter, 0, limit)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(store.baseDir, entry.Name())
+		//nolint:gosec // Path comes from os.ReadDir(store.baseDir), filtered to files within the configured dead-letter directory.
+		payload, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read dead-letter file %s: %w", path, err)
+			return nil, fmt.Errorf("read dead letter %s: %w", path, err)
 		}
 		var record deadLetterRecord
-		if err := json.Unmarshal(body, &record); err != nil {
-			return nil, fmt.Errorf("unmarshal dead-letter file %s: %w", path, err)
+		if err := json.Unmarshal(payload, &record); err != nil {
+			return nil, fmt.Errorf("decode dead letter %s: %w", path, err)
 		}
-		entries = append(entries, deadLetterEntry{
-			path: path,
-			message: &nats.Msg{
-				Subject: record.Subject,
-				Header:  nats.Header(record.Header),
-				Data:    append([]byte(nil), record.Data...),
-			},
+		records = append(records, storedDeadLetter{
+			deadLetterRecord: record,
+			path:             path,
 		})
+		if len(records) >= limit {
+			break
+		}
 	}
-	return entries, nil
+	return records, nil
 }
 
-func (queue *fileDeadLetterQueue) delete(path string) error {
-	return os.Remove(path)
+func (store *deadLetterStore) Delete(path string) error {
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove dead letter %s: %w", path, err)
+	}
+	store.count.Add(-1)
+	return nil
 }
 
-func (queue *fileDeadLetterQueue) count() (int, error) {
-	count := 0
-	if err := filepath.WalkDir(queue.baseDir, func(path string, dirEntry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+func (store *deadLetterStore) Count() int64 {
+	return store.count.Load()
+}
+
+func (store *deadLetterStore) scanCount() (int64, error) {
+	entries, err := os.ReadDir(store.baseDir)
+	if err != nil {
+		return 0, fmt.Errorf("scan dead-letter dir: %w", err)
+	}
+	var count int64
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			count++
 		}
-		if dirEntry.IsDir() || filepath.Ext(path) != ".json" {
-			return nil
-		}
-		count++
-		return nil
-	}); err != nil {
-		return 0, err
 	}
 	return count, nil
+}
+
+func (record storedDeadLetter) message() *nats.Msg {
+	return &nats.Msg{
+		Subject: record.Subject,
+		Header:  cloneMessageHeader(record.Header),
+		Data:    append([]byte(nil), record.Data...),
+	}
 }
 
 func cloneMessage(message *nats.Msg) *nats.Msg {
 	if message == nil {
 		return nil
 	}
-	cloned := &nats.Msg{
+	return &nats.Msg{
 		Subject: message.Subject,
 		Reply:   message.Reply,
+		Header:  cloneMessageHeader(message.Header),
 		Data:    append([]byte(nil), message.Data...),
 	}
-	if message.Header != nil {
-		cloned.Header = nats.Header(headerMap(message.Header))
-	}
-	return cloned
 }
 
-func headerMap(header nats.Header) map[string][]string {
+func cloneMessageHeader(header nats.Header) nats.Header {
 	if header == nil {
 		return nil
 	}
-	cloned := make(map[string][]string, len(header))
+	cloned := make(nats.Header, len(header))
 	for key, values := range header {
 		cloned[key] = append([]string(nil), values...)
 	}
 	return cloned
 }
+
+var _ ChangePublisher = (*ReliablePublisher)(nil)
+var _ interface{ Close() } = (*ReliablePublisher)(nil)
+var _ interface {
+	Publish(context.Context, Change) error
+} = (*ReliablePublisher)(nil)

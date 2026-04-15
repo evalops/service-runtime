@@ -217,9 +217,12 @@ func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 	if err != nil {
 		return err
 	}
-	if err := publisher.publishPreparedMessage(ctx, message); err != nil {
-		return err
+
+	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
+		return fmt.Errorf("publish %s: %w", message.Subject, err)
 	}
+
+	publisher.loggerOrDefault().Debug("published change event", "seq", change.Sequence, "subject", message.Subject)
 	return nil
 }
 
@@ -241,6 +244,10 @@ func (NoopPublisher) Publish(context.Context, Change) error { return nil }
 func (NoopPublisher) PublishChange(context.Context, Change) {}
 
 func (publisher *Publisher) buildMessage(ctx context.Context, change Change) (*nats.Msg, error) {
+	if publisher == nil || publisher.js == nil {
+		return nil, ErrPublisherNil
+	}
+
 	subject := change.subject(publisher.subjectPrefix)
 	envelope, err := change.toCloudEvent(subject, publisher.source)
 	if err != nil {
@@ -253,17 +260,6 @@ func (publisher *Publisher) buildMessage(ctx context.Context, change Change) (*n
 		return nil, fmt.Errorf("marshal change event: %w", err)
 	}
 	return message, nil
-}
-
-func (publisher *Publisher) publishPreparedMessage(ctx context.Context, message *nats.Msg) error {
-	if publisher == nil || publisher.js == nil {
-		return ErrPublisherNil
-	}
-	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
-		return fmt.Errorf("publish %s: %w", message.Subject, err)
-	}
-	publisher.loggerOrDefault().Debug("published change event", "subject", message.Subject)
-	return nil
 }
 
 func (opts Options) withDefaults() Options {
