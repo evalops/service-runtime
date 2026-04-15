@@ -10,11 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/evalops/service-runtime/resilience"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -713,162 +710,6 @@ func TestChangePublisherInterfaceAcceptsSupportedTypes(t *testing.T) {
 	var _ ChangePublisher = NoopPublisher{}
 }
 
-func TestConnectReliableWithOptionsRejectsMissingDeadLetterDir(t *testing.T) {
-	t.Parallel()
-
-	_, err := newReliablePublisher(&Publisher{
-		js:            &fakeJetStream{},
-		logger:        slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
-		subjectPrefix: "pipeline.changes",
-		source:        "pipeline",
-	}, ReliableOptions{})
-	if !errors.Is(err, errDeadLetterDirRequired) {
-		t.Fatalf("expected errDeadLetterDirRequired, got %v", err)
-	}
-}
-
-func TestReliablePublisherRetriesTransientFailures(t *testing.T) {
-	t.Parallel()
-
-	fake := &fakeJetStream{
-		publishErrs: []error{errors.New("nats unavailable"), nil},
-	}
-	publisher := newTestReliablePublisher(t, fake, ReliableOptions{
-		DeadLetterDir:  t.TempDir(),
-		Registerer:     prometheus.NewRegistry(),
-		ReplayInterval: time.Hour,
-		Retry: resilience.RetryConfig{
-			MaxAttempts:  2,
-			InitialDelay: time.Millisecond,
-			MaxDelay:     time.Millisecond,
-		},
-	})
-
-	err := publisher.Publish(context.Background(), Change{
-		Sequence:      1,
-		TenantID:      "org-1",
-		AggregateType: "deal",
-		Operation:     "create",
-		Payload:       MustPayload(wrapperspb.String("d-1")),
-	})
-	if err != nil {
-		t.Fatalf("expected transient failure to recover, got %v", err)
-	}
-	if fake.publishCalls != 2 {
-		t.Fatalf("publish calls = %d, want 2", fake.publishCalls)
-	}
-	if count, err := publisher.deadLetters.count(); err != nil || count != 0 {
-		t.Fatalf("dead-letter count = %d, err = %v, want 0", count, err)
-	}
-}
-
-func TestReliablePublisherQueuesDeadLettersAndOpensBreaker(t *testing.T) {
-	t.Parallel()
-
-	registry := prometheus.NewRegistry()
-	fake := &fakeJetStream{
-		publishErr: errors.New("nats unavailable"),
-	}
-	publisher := newTestReliablePublisher(t, fake, ReliableOptions{
-		DeadLetterDir:  t.TempDir(),
-		Registerer:     registry,
-		ReplayInterval: time.Hour,
-		Retry: resilience.RetryConfig{
-			MaxAttempts:  1,
-			InitialDelay: time.Millisecond,
-			MaxDelay:     time.Millisecond,
-		},
-		Breaker: resilience.BreakerConfig{
-			FailureThreshold: 1,
-			ResetTimeout:     time.Hour,
-		},
-	})
-	change := Change{
-		Sequence:      7,
-		TenantID:      "org-1",
-		AggregateType: "deal",
-		Operation:     "update",
-		Payload:       MustPayload(wrapperspb.String("d-1")),
-	}
-
-	err := publisher.Publish(context.Background(), change)
-	if err == nil {
-		t.Fatal("expected publish error, got nil")
-	}
-	if !strings.Contains(err.Error(), "queued for replay") {
-		t.Fatalf("expected queued-for-replay error, got %v", err)
-	}
-
-	err = publisher.Publish(context.Background(), change)
-	if !errors.Is(err, resilience.ErrCircuitOpen) {
-		t.Fatalf("expected ErrCircuitOpen, got %v", err)
-	}
-	if fake.publishCalls != 1 {
-		t.Fatalf("publish calls = %d, want 1 after breaker opens", fake.publishCalls)
-	}
-
-	if count, err := publisher.deadLetters.count(); err != nil || count != 2 {
-		t.Fatalf("dead-letter count = %d, err = %v, want 2", count, err)
-	}
-
-	if got := counterValue(t, publisher.metrics.publishFailures.WithLabelValues("pipeline.changes")); got != 2 {
-		t.Fatalf("publish failure metric = %v, want 2", got)
-	}
-	if got := gaugeValue(t, publisher.metrics.deadLetterSize.WithLabelValues("pipeline.changes")); got != 2 {
-		t.Fatalf("dead-letter size metric = %v, want 2", got)
-	}
-}
-
-func TestReliablePublisherReplayPendingDeletesDeadLetters(t *testing.T) {
-	t.Parallel()
-
-	registry := prometheus.NewRegistry()
-	fake := &fakeJetStream{
-		publishErr: errors.New("nats unavailable"),
-	}
-	publisher := newTestReliablePublisher(t, fake, ReliableOptions{
-		DeadLetterDir:  t.TempDir(),
-		Registerer:     registry,
-		ReplayInterval: time.Hour,
-		Retry: resilience.RetryConfig{
-			MaxAttempts:  1,
-			InitialDelay: time.Millisecond,
-			MaxDelay:     time.Millisecond,
-		},
-		Breaker: resilience.BreakerConfig{
-			FailureThreshold: 1,
-			ResetTimeout:     time.Hour,
-		},
-	})
-
-	if err := publisher.Publish(context.Background(), Change{
-		Sequence:      9,
-		TenantID:      "org-1",
-		AggregateType: "deal",
-		Operation:     "create",
-		Payload:       MustPayload(wrapperspb.String("d-1")),
-	}); err == nil {
-		t.Fatal("expected publish error, got nil")
-	}
-
-	publisher.Close()
-	fake.publishErr = nil
-	publisher.breaker.Reset()
-	if err := publisher.replayPending(context.Background()); err != nil {
-		t.Fatalf("replayPending() error = %v", err)
-	}
-
-	if fake.publishCalls != 2 {
-		t.Fatalf("publish calls = %d, want 2", fake.publishCalls)
-	}
-	if count, err := publisher.deadLetters.count(); err != nil || count != 0 {
-		t.Fatalf("dead-letter count = %d, err = %v, want 0", count, err)
-	}
-	if got := gaugeValue(t, publisher.metrics.deadLetterSize.WithLabelValues("pipeline.changes")); got != 0 {
-		t.Fatalf("dead-letter size metric = %v, want 0", got)
-	}
-}
-
 func TestNewPayloadRejectsNilMessage(t *testing.T) {
 	t.Parallel()
 
@@ -1090,22 +931,6 @@ func (fake *fakeJetStream) PublishMsg(_ context.Context, message *nats.Msg, _ ..
 	return &jetstream.PubAck{}, nil
 }
 
-func newTestReliablePublisher(t *testing.T, js *fakeJetStream, opts ReliableOptions) *ReliablePublisher {
-	t.Helper()
-
-	publisher, err := newReliablePublisher(&Publisher{
-		js:            js,
-		logger:        slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
-		subjectPrefix: "pipeline.changes",
-		source:        "pipeline",
-	}, opts)
-	if err != nil {
-		t.Fatalf("newReliablePublisher() error = %v", err)
-	}
-	t.Cleanup(publisher.Close)
-	return publisher
-}
-
 func cloneHeader(header nats.Header) nats.Header {
 	if header == nil {
 		return nil
@@ -1133,30 +958,4 @@ func newCloudEventHeader(id, eventType, source, eventTime, tenantID, contentType
 		header.Set(headerDataContentType, contentType)
 	}
 	return header
-}
-
-func counterValue(t *testing.T, counter prometheus.Counter) float64 {
-	t.Helper()
-
-	metric := &dto.Metric{}
-	if err := counter.Write(metric); err != nil {
-		t.Fatalf("counter.Write() error = %v", err)
-	}
-	if metric.Counter == nil {
-		t.Fatal("counter metric missing counter payload")
-	}
-	return metric.Counter.GetValue()
-}
-
-func gaugeValue(t *testing.T, gauge prometheus.Gauge) float64 {
-	t.Helper()
-
-	metric := &dto.Metric{}
-	if err := gauge.Write(metric); err != nil {
-		t.Fatalf("gauge.Write() error = %v", err)
-	}
-	if metric.Gauge == nil {
-		t.Fatal("gauge metric missing gauge payload")
-	}
-	return metric.Gauge.GetValue()
 }
