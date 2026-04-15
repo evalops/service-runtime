@@ -6,6 +6,8 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "github.com/evalops/*"
     groups:
       go-deps:
         patterns:
