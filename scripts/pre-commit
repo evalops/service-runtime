@@ -3,8 +3,13 @@
 # Run lint and test on staged Go files only.
 # Stash unstaged changes so the checks run against exactly what will be committed.
 STASHED=1
-cleanup() { [ $STASHED -eq 0 ] && git stash pop -q 2>/dev/null || true; }
-trap cleanup EXIT INT TERM
+cleanup() {
+  if [ $STASHED -eq 0 ]; then
+    git stash pop -q 2>/dev/null || true
+    STASHED=1
+  fi
+}
+trap cleanup EXIT
 
 STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
 if [ -n "$STAGED" ]; then
