@@ -573,8 +573,8 @@ Main entry points:
 
 - `natsbus.Connect(ctx, natsURL, streamName, subjectPrefix, logger)`
 - `natsbus.ConnectWithOptions(ctx, natsURL, streamName, subjectPrefix, opts)`
-- `natsbus.ConnectReliable(ctx, natsURL, streamName, subjectPrefix, logger, deadLetterDir)`
-- `natsbus.ConnectReliableWithOptions(ctx, natsURL, streamName, subjectPrefix, opts)`
+- `natsbus.ConnectReliable(ctx, natsURL, streamName, subjectPrefix, opts)`
+- `natsbus.NewReliablePublisher(publisher, opts)`
 - `publisher.PublishChange(ctx, change)`
 - `publisher.Close()`
 - `natsbus.NewPayload(message)`
@@ -596,10 +596,12 @@ NATS headers with protobuf body bytes). Consumers can use
 older JSON/proto envelopes during rollout. All envelope variants now preserve
 `traceparent`, `tracestate`, and `baggage`, and consumers can call
 `natsbus.ExtractContext(...)` to continue the upstream trace when handling a
-message. Services that cannot afford silent event loss can opt into
-`ReliablePublisher`, which wraps publish attempts with shared retry and circuit
-breaker logic, persists failed messages to a file-backed dead-letter queue, and
-replays them automatically when JetStream recovers.
+message. For resilience-sensitive publishers, `ReliablePublisher` wraps the
+same message contract with retry, a circuit breaker, a file-backed dead-letter
+queue, background replay, and the Prometheus metrics
+`natsbus_publish_failures_total` and `natsbus_dead_letter_size`. Reliable
+publishers require `ReliableOptions.DeadLetterDir` so failed publish attempts
+can survive process restarts and replay once NATS recovers.
 ## Consumption
 
 Add the module to a consumer repo:
