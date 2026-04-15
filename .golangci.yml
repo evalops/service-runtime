@@ -49,6 +49,7 @@ linters:
           - errcheck
           - gosec
           - gocritic
+          - noctx
       - path: vendor/
         linters:
           - ALL
