@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":disableDependencyDashboard"
+  ],
+  "enabledManagers": [
+    "gomod"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "Keep internal EvalOps Go modules current.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "github.com/evalops/**"
+      ],
+      "groupName": "evalops go modules",
+      "groupSlug": "evalops-go-modules",
+      "rangeStrategy": "replace"
+    },
+    {
+      "description": "Dependabot already owns external Go module bumps here.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "!github.com/evalops/**"
+      ],
+      "enabled": false
+    }
+  ]
+}

@@ -47,6 +47,18 @@ The automation intentionally stays conservative and only advances the patch
 line. If maintainers need to start a new minor or major line, cut that seed tag
 manually first and the workflow will continue from there on later merges.
 
+## Dependency Automation
+
+`service-runtime` uses two update bots on purpose:
+
+- Dependabot owns external Go modules and GitHub Actions updates.
+- Renovate owns internal `github.com/evalops/*` Go module updates.
+
+That split avoids duplicate PRs while still catching broken internal pseudo
+versions quickly. This is especially important for shared modules like
+`github.com/evalops/proto`, where a stale ref can block downstream service
+upgrades across the fleet.
+
 ## Packages
 
 ### `startup`
