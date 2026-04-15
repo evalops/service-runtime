@@ -99,7 +99,7 @@ func TestReliablePublishInjectsTraceHeadersAndStartsProducerSpan(t *testing.T) {
 		t.Fatalf("producer parent span id = %s, want %s", got, want)
 	}
 
-	propagated := trace.SpanContextFromContext(extractMessageContext(context.Background(), messages[0]))
+	propagated := trace.SpanContextFromContext(extractMessageContext(messages[0]))
 	if !propagated.IsValid() {
 		t.Fatal("expected trace context on published message")
 	}

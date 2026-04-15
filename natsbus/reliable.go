@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -159,7 +160,12 @@ func (publisher *ReliablePublisher) Publish(ctx context.Context, change Change) 
 	}
 
 	subject := change.subject(publisher.publisher.subjectPrefix)
-	ctx, span := startMessagingSpan(ctx, "nats.publish", trace.SpanKindProducer, subject)
+	ctx, span := otel.Tracer(propagationTracerName).Start(
+		ctx,
+		"nats.publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(publishSpanAttributes(subject)...),
+	)
 	defer span.End()
 
 	message, err := publisher.publisher.buildMessage(ctx, change)
