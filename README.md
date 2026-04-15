@@ -63,12 +63,18 @@ upgrades across the fleet.
 
 ### `startup`
 
-Generic retry helpers for service startup paths.
+Retry helpers plus a small shutdown lifecycle for startup-managed dependencies.
 
 Main entry points:
 
 - `startup.Do(ctx, cfg, fn)`
 - `startup.Value[T](ctx, cfg, fn)`
+- `startup.NewLifecycle()`
+- `(*startup.Lifecycle).OnShutdown(name, fn)`
+- `(*startup.Lifecycle).Shutdown(ctx)`
+- `(*startup.Lifecycle).EnableTracingFromEnv(ctx, serviceName)`
+- `startup.TracingConfigFromEnv(serviceName)`
+- `startup.InitTracing(ctx, cfg)`
 
 Config:
 
@@ -79,10 +85,13 @@ Defaults:
 
 - `startup.DefaultMaxAttempts`
 - `startup.DefaultDelay`
+- `startup.DefaultTraceBatchTimeout`
+- `startup.DefaultTraceExportTimeout`
 
 Use this package directly when a service needs retry behavior but still wants
 to own the actual bootstrap logic and logging. This is the pattern used by
-`gate`, where the service wants retry logs around each failed database attempt.
+services that want retry logs around each failed database attempt, but still
+need one place to register shutdown work such as tracing flushes.
 
 ```go
 value, err := startup.Value(ctx, startup.Config{
@@ -91,6 +100,34 @@ value, err := startup.Value(ctx, startup.Config{
 }, func(ctx context.Context) (*Thing, error) {
 	return openThing(ctx)
 })
+```
+
+For tracing, the shared bootstrap uses the standard OTEL env vars:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT`
+- `OTEL_SERVICE_NAME`
+- `OTEL_TRACES_SAMPLER`
+
+`OTEL_TRACES_SAMPLER` accepts `always_on`, `always_off`,
+`traceidratio[:0.25]`, `parentbased_traceidratio[:0.25]`, or a bare numeric
+ratio such as `0.25`. The helper also honors `OTEL_TRACES_SAMPLER_ARG` for the
+ratio when using the standard sampler names.
+
+Use the lifecycle hook when a service wants spans flushed on SIGTERM:
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+defer stop()
+
+lifecycle := startup.NewLifecycle()
+if err := lifecycle.EnableTracingFromEnv(ctx, "gate"); err != nil {
+	return err
+}
+defer func() {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = lifecycle.Shutdown(shutdownCtx)
+}()
 ```
 
 ### `postgres`
@@ -402,7 +439,9 @@ Main entry points:
 
 Use this package when a service wants the shared Prometheus metric names and
 per-request logging/metadata pattern without hard-coding those collectors in
-its API package.
+its API package. When combined with `startup.EnableTracingFromEnv(...)`,
+`httpkit.WithTelemetry(service)` exports real spans instead of writing to the
+default noop tracer provider.
 
 Metric label rules:
 
@@ -751,7 +790,7 @@ When adding new shared helpers here:
 ## Repository Layout
 
 ```text
-startup/       Retry primitives
+startup/       Retry primitives and lifecycle helpers
 postgres/      database/sql PostgreSQL bootstrap
 redisutil/     Redis bootstrap
 ratelimit/     HTTP rate limiting middleware

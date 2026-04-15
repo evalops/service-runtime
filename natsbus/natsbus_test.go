@@ -939,6 +939,20 @@ func TestSubscribeConfiguresDurableQueueConsumer(t *testing.T) {
 	}
 }
 
+func TestConsumerSubscribeOptionsFallbackToDeliverNew(t *testing.T) {
+	t.Parallel()
+
+	opts := ConsumerOptions{
+		Stream:        "approvals_events",
+		Durable:       "audit-approval-habits",
+		DeliverPolicy: DeliveryPolicy("nw"),
+	}
+
+	if got, want := len(opts.subscribeOptions()), 4; got != want {
+		t.Fatalf("subscribeOptions() count = %d, want %d", got, want)
+	}
+}
+
 func TestSubscribeAcksAndNaksHandlerResults(t *testing.T) {
 	t.Parallel()
 
