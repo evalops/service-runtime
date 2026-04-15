@@ -213,23 +213,13 @@ func (publisher *Publisher) Publish(ctx context.Context, change Change) error {
 		return ErrPublisherNil
 	}
 
-	subject := change.subject(publisher.subjectPrefix)
-	envelope, err := change.toCloudEvent(subject, publisher.source)
+	message, err := publisher.buildMessage(ctx, change)
 	if err != nil {
-		return fmt.Errorf("build change envelope: %w", err)
+		return err
 	}
-	envelope = injectTraceContext(ctx, envelope)
-
-	message, err := marshalEnvelopeMessage(subject, envelope, normalizedWireFormat(publisher.wireFormat))
-	if err != nil {
-		return fmt.Errorf("marshal change event: %w", err)
+	if err := publisher.publishPreparedMessage(ctx, message); err != nil {
+		return err
 	}
-
-	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
-		return fmt.Errorf("publish %s: %w", subject, err)
-	}
-
-	publisher.loggerOrDefault().Debug("published change event", "seq", change.Sequence, "subject", subject)
 	return nil
 }
 
@@ -249,6 +239,32 @@ func (NoopPublisher) Publish(context.Context, Change) error { return nil }
 
 // PublishChange discards the event.
 func (NoopPublisher) PublishChange(context.Context, Change) {}
+
+func (publisher *Publisher) buildMessage(ctx context.Context, change Change) (*nats.Msg, error) {
+	subject := change.subject(publisher.subjectPrefix)
+	envelope, err := change.toCloudEvent(subject, publisher.source)
+	if err != nil {
+		return nil, fmt.Errorf("build change envelope: %w", err)
+	}
+	envelope = injectTraceContext(ctx, envelope)
+
+	message, err := marshalEnvelopeMessage(subject, envelope, normalizedWireFormat(publisher.wireFormat))
+	if err != nil {
+		return nil, fmt.Errorf("marshal change event: %w", err)
+	}
+	return message, nil
+}
+
+func (publisher *Publisher) publishPreparedMessage(ctx context.Context, message *nats.Msg) error {
+	if publisher == nil || publisher.js == nil {
+		return ErrPublisherNil
+	}
+	if _, err := publisher.js.PublishMsg(ctx, message); err != nil {
+		return fmt.Errorf("publish %s: %w", message.Subject, err)
+	}
+	publisher.loggerOrDefault().Debug("published change event", "subject", message.Subject)
+	return nil
+}
 
 func (opts Options) withDefaults() Options {
 	if opts.Logger == nil {

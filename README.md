@@ -517,6 +517,8 @@ Main entry points:
 
 - `natsbus.Connect(ctx, natsURL, streamName, subjectPrefix, logger)`
 - `natsbus.ConnectWithOptions(ctx, natsURL, streamName, subjectPrefix, opts)`
+- `natsbus.ConnectReliable(ctx, natsURL, streamName, subjectPrefix, logger, deadLetterDir)`
+- `natsbus.ConnectReliableWithOptions(ctx, natsURL, streamName, subjectPrefix, opts)`
 - `publisher.PublishChange(ctx, change)`
 - `publisher.Close()`
 - `natsbus.NewPayload(message)`
@@ -538,7 +540,10 @@ NATS headers with protobuf body bytes). Consumers can use
 older JSON/proto envelopes during rollout. All envelope variants now preserve
 `traceparent`, `tracestate`, and `baggage`, and consumers can call
 `natsbus.ExtractContext(...)` to continue the upstream trace when handling a
-message.
+message. Services that cannot afford silent event loss can opt into
+`ReliablePublisher`, which wraps publish attempts with shared retry and circuit
+breaker logic, persists failed messages to a file-backed dead-letter queue, and
+replays them automatically when JetStream recovers.
 ## Consumption
 
 Add the module to a consumer repo:
