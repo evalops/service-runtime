@@ -433,6 +433,7 @@ func (store *deadLetterStore) List(limit int) ([]storedDeadLetter, error) {
 		}
 		path := filepath.Join(store.baseDir, entry.Name())
 		//nolint:gosec // Path comes from os.ReadDir(store.baseDir), filtered to files within the configured dead-letter directory.
+		// #nosec G304 -- Path stays scoped to the configured dead-letter directory contents.
 		payload, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read dead letter %s: %w", path, err)

@@ -108,6 +108,7 @@ func backoffDelay(cfg RetryConfig, attempt int) time.Duration {
 		return 0
 	}
 	//nolint:gosec // Backoff jitter is non-cryptographic and only used to spread retries.
+	// #nosec G404 -- Non-cryptographic jitter only spreads retry load.
 	jittered := rand.Int64N(maxJitter)
 	return time.Duration(jittered)
 }

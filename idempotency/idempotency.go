@@ -129,7 +129,9 @@ func MiddlewareWithOptions(store Store, opts Options) func(http.Handler) http.Ha
 				}
 				writer.Header().Set("X-Idempotent-Replay", "true")
 				writer.WriteHeader(replay.StatusCode)
-				_, _ = writer.Write(replay.Body) //nolint:gosec // G705: body is our own stored handler response, not user-reflected input
+				//nolint:gosec // G705: body is our own stored handler response, not user-reflected input.
+				// #nosec G705 -- Replayed bytes come from our stored handler response, not direct user input.
+				_, _ = writer.Write(replay.Body)
 				return
 			}
 
