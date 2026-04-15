@@ -213,9 +213,11 @@ Main entry points:
 - `testutil.Context(t)`
 - `testutil.NewTestDB(t, schemaSQL)`
 - `testutil.NewTestPGXPool(t, schemaSQL)`
+- `testutil.NewTestNATSServer(t)`
 - `testutil.NewTestServer(t, handler)`
 - `testutil.NewTestToken(t, claims)`
 - `testutil.NewAuthenticatedRequest(t, method, target, orgID, scope, body...)`
+- `testutil.WaitForNATSMessage(t, sub, timeout)`
 - `testutil.AssertJSONResponse(t, response, status, body)`
 - `testutil.AssertErrorCode(t, raw, expected)`
 
@@ -223,6 +225,9 @@ Main entry points:
 pointed to by `TEST_DATABASE_URL`, apply optional schema SQL, and drop the
 schema during test cleanup. That keeps backed integration tests hermetic
 without forcing each service to hand-roll its own schema lifecycle.
+`NewTestNATSServer` does the same for NATS-dependent tests by booting an
+embedded JetStream-enabled server, returning a connected client plus URL, and
+shutting everything down automatically during cleanup.
 
 ### `mtls`
 
