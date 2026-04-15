@@ -230,7 +230,7 @@ func (carrier natsHeaderCarrier) Get(key string) string {
 	if carrier.header == nil || *carrier.header == nil {
 		return ""
 	}
-	return (*carrier.header).Get(key)
+	return carrier.header.Get(key)
 }
 
 func (carrier natsHeaderCarrier) Set(key, value string) {
@@ -240,7 +240,7 @@ func (carrier natsHeaderCarrier) Set(key, value string) {
 	if *carrier.header == nil {
 		*carrier.header = nats.Header{}
 	}
-	(*carrier.header).Set(key, value)
+	carrier.header.Set(key, value)
 }
 
 func (carrier natsHeaderCarrier) Keys() []string {
