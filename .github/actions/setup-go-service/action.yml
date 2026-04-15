@@ -105,7 +105,7 @@ runs:
       run: |
         echo "GOPRIVATE=github.com/evalops/*" >> "$GITHUB_ENV"
         echo "GONOSUMDB=github.com/evalops/*" >> "$GITHUB_ENV"
-        echo "GOPROXY=direct" >> "$GITHUB_ENV"
+        echo "GOPROXY=https://proxy.golang.org,direct" >> "$GITHUB_ENV"
 
     - name: Configure authenticated GitHub module access
       shell: bash
