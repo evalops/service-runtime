@@ -722,12 +722,15 @@ scope checks and request-level auth behavior locally.
 introducing a separate cross-repo credentials flow just for Go module fetches.
 
 If a consuming repo also depends on other private `evalops` modules, keep the
-standard Go module environment in CI and builder images:
+standard Go module environment in CI and builder images so private EvalOps
+modules bypass the public proxy while public modules still use the checksum-backed
+default path:
 
 ```bash
 GOPRIVATE=github.com/evalops/*
+GONOPROXY=github.com/evalops/*
 GONOSUMDB=github.com/evalops/*
-GOPROXY=direct
+GOPROXY=https://proxy.golang.org,direct
 ```
 
 That pattern is now in the first adoption wave across:
@@ -754,8 +757,9 @@ That action:
 
 - installs the Go version declared by `go.mod`, or an explicit `go-version` override
 - exports `GOPRIVATE=github.com/evalops/*`
+- exports `GONOPROXY=github.com/evalops/*`
 - exports `GONOSUMDB=github.com/evalops/*`
-- exports `GOPROXY=direct`
+- exports `GOPROXY=https://proxy.golang.org,direct`
 - configures authenticated `git` access for private `github.com/evalops/*` modules using the workflow token
 - optionally runs `go mod download`
 - can optionally run `go test`, `golangci-lint`, `gosec`, and `govulncheck`
