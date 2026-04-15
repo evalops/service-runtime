@@ -203,6 +203,8 @@ func (opts ConsumerOptions) subscribeOptions() []nats.SubOpt {
 		options = append(options, nats.DeliverAll())
 	case DeliverLast:
 		options = append(options, nats.DeliverLast())
+	case DeliverNew:
+		options = append(options, nats.DeliverNew())
 	default:
 		options = append(options, nats.DeliverNew())
 	}
