@@ -53,6 +53,3 @@ linters:
       - path: vendor/
         linters:
           - ALL
-      - linters:
-          - exhaustive
-        text: "missing cases"
