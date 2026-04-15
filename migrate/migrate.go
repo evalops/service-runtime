@@ -15,6 +15,7 @@ import (
 
 	gomigrate "github.com/golang-migrate/migrate/v4"
 	migratepostgres "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	migrateiofs "github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
