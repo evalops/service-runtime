@@ -24,11 +24,16 @@ jobs:
       - name: Fetch tags
         run: git fetch --force --tags origin
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Set up Go service
+        uses: ./.github/actions/setup-go-service
         with:
-          go-version: "1.26"
           cache: false
+          download: false
+
+      - name: Set up Buf
+        uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
+        with:
+          setup_only: true
 
       - name: Determine release version
         id: version
@@ -56,6 +61,27 @@ jobs:
           echo "version=${next_tag}" >> "${GITHUB_OUTPUT}"
           echo "create_tag=true" >> "${GITHUB_OUTPUT}"
 
+      - name: Verify release test suite
+        env:
+          GOFLAGS: -mod=vendor
+        run: go test ./... -count=1 -race
+
+      - name: Verify protobuf compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_ref="$(git rev-parse "${GITHUB_SHA}^")"
+          if git show "${base_ref}:buf.yaml" >/dev/null 2>&1; then
+            buf breaking --against ".git#ref=${base_ref}"
+          else
+            echo "Skipping: no buf.yaml on ${base_ref}"
+          fi
+
+      - name: Delay release tag for manual abort window
+        if: steps.version.outputs.create_tag == 'true'
+        run: sleep 300
+
       - name: Create and push tag
         if: steps.version.outputs.create_tag == 'true'
         env:
@@ -66,6 +92,44 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${VERSION}" "${GITHUB_SHA}" -m "Release ${VERSION}"
           git push origin "${VERSION}"
+
+      - name: Smoke test released module from clean cache
+        shell: bash
+        env:
+          GOFLAGS: ""
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "${tmpdir}"' EXIT
+
+          export GOMODCACHE="${tmpdir}/modcache"
+          export GOCACHE="${tmpdir}/gocache"
+          mkdir -p "${GOMODCACHE}" "${GOCACHE}"
+
+          cd "${tmpdir}"
+          go mod init release-smoke >/dev/null 2>&1
+          cat <<'EOF' > main.go
+          package main
+
+          import _ "github.com/evalops/service-runtime/natsbus"
+
+          func main() {}
+          EOF
+
+          for attempt in 1 2 3 4 5; do
+            if go get "github.com/evalops/service-runtime@${VERSION}"; then
+              go build .
+              exit 0
+            fi
+
+            if [ "${attempt}" -eq 5 ]; then
+              exit 1
+            fi
+
+            sleep 15
+          done
 
       - name: Build hook release artifacts
         env:
