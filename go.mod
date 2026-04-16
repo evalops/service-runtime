@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	connectrpc.com/connect v1.19.1
+	connectrpc.com/otelconnect v0.7.2
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/evalops/proto v0.0.0-20260414193513-3db7075bd55b
