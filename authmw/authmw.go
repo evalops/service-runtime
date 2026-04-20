@@ -3,6 +3,7 @@ package authmw
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/evalops/service-runtime/httpkit"
@@ -76,7 +77,7 @@ func (middleware *Middleware) WithAuth(scopes ...string) func(http.Handler) http
 				return
 			}
 
-			actor, err := middleware.authenticate(request.Context(), token, scopes)
+			actor, availableScopes, err := middleware.authenticate(request.Context(), token, scopes)
 			if err != nil {
 				status := http.StatusUnauthorized
 				if middleware.isForbidden(err) {
@@ -87,6 +88,7 @@ func (middleware *Middleware) WithAuth(scopes ...string) func(http.Handler) http
 			}
 
 			ctx := context.WithValue(request.Context(), actorContextKey, actor)
+			ctx = ContextWithPrincipal(ctx, PrincipalFromActor(actor, availableScopes))
 			next.ServeHTTP(writer, request.WithContext(ctx))
 		})
 	}
@@ -101,18 +103,16 @@ func ActorFromContext(ctx context.Context) (Actor, bool) {
 // HasAllScopes reports whether all required scopes are present in available.
 func HasAllScopes(available []string, required []string) bool {
 	for _, requirement := range required {
-		found := false
-		for _, scope := range available {
-			if scope == requirement {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !HasScope(available, requirement) {
 			return false
 		}
 	}
 	return true
+}
+
+// HasScope reports whether the required scope is present in available scopes.
+func HasScope(available []string, required string) bool {
+	return required != "" && slices.Contains(available, required)
 }
 
 // BearerToken extracts the token from an Authorization: Bearer <token> header.
@@ -125,41 +125,41 @@ func BearerToken(header string) (string, bool) {
 	return token, token != ""
 }
 
-func (middleware *Middleware) authenticate(ctx context.Context, token string, scopes []string) (Actor, error) {
+func (middleware *Middleware) authenticate(ctx context.Context, token string, scopes []string) (Actor, []string, error) {
 	if strings.HasPrefix(token, "pk_") {
 		return middleware.authenticateAPIKey(ctx, token, scopes)
 	}
 	return middleware.authenticateToken(ctx, token, scopes)
 }
 
-func (middleware *Middleware) authenticateAPIKey(ctx context.Context, token string, scopes []string) (Actor, error) {
+func (middleware *Middleware) authenticateAPIKey(ctx context.Context, token string, scopes []string) (Actor, []string, error) {
 	if middleware == nil || middleware.apiKeyValidator == nil {
-		return Actor{}, errAPIKeyValidatorUnavailable
+		return Actor{}, nil, errAPIKeyValidatorUnavailable
 	}
 	key, err := middleware.apiKeyValidator.ValidateAPIKey(ctx, token)
 	if err != nil {
-		return Actor{}, err
+		return Actor{}, nil, err
 	}
 	if !HasAllScopes(key.Scopes, scopes) {
-		return Actor{}, errMissingScopes
+		return Actor{}, nil, errMissingScopes
 	}
 
 	return Actor{
 		Type:           "api_key",
 		ID:             key.ID,
 		OrganizationID: key.OrganizationID,
-	}, nil
+	}, append([]string(nil), key.Scopes...), nil
 }
 
-func (middleware *Middleware) authenticateToken(ctx context.Context, token string, scopes []string) (Actor, error) {
+func (middleware *Middleware) authenticateToken(ctx context.Context, token string, scopes []string) (Actor, []string, error) {
 	if middleware == nil || middleware.tokenVerifier == nil {
-		return Actor{}, errTokenVerifierUnavailable
+		return Actor{}, nil, errTokenVerifierUnavailable
 	}
 	verified, err := middleware.tokenVerifier.VerifyToken(ctx, token, scopes)
 	if err != nil {
-		return Actor{}, err
+		return Actor{}, nil, err
 	}
-	return verified.Actor, nil
+	return verified.Actor, append([]string(nil), verified.Scopes...), nil
 }
 
 func (middleware *Middleware) isForbidden(err error) bool {

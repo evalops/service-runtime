@@ -80,6 +80,33 @@ func TestFireAndForgetRecoversPanics(t *testing.T) {
 	}
 }
 
+func TestRunnerRejectsWhenFull(t *testing.T) {
+	runner := async.NewRunner(1, slog.Default())
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	if !runner.TryGo(context.Background(), "test.block", func(_ context.Context) error {
+		close(started)
+		<-release
+		return nil
+	}) {
+		t.Fatal("expected first task to be accepted")
+	}
+	<-started
+
+	var ran atomic.Bool
+	if runner.TryGo(context.Background(), "test.rejected", func(_ context.Context) error {
+		ran.Store(true)
+		return nil
+	}) {
+		t.Fatal("expected second task to be rejected while runner is full")
+	}
+	if ran.Load() {
+		t.Fatal("rejected task should not run")
+	}
+	close(release)
+}
+
 func TestCloneProtoPreventsMutationRace(t *testing.T) {
 	original := &approvalsv1.ApprovalRequest{
 		Id:          "req-1",

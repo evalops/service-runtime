@@ -40,11 +40,16 @@ func TestWithAuthAPIKey(t *testing.T) {
 	middleware := New(Config{APIKeyValidator: validator})
 
 	var seenActor Actor
+	var seenPrincipal Principal
 	handler := middleware.WithAuth("scope:read")(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var ok bool
 		seenActor, ok = ActorFromContext(request.Context())
 		if !ok {
 			t.Fatal("expected actor in context")
+		}
+		seenPrincipal, ok = PrincipalFromContext(request.Context())
+		if !ok {
+			t.Fatal("expected principal in context")
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	}))
@@ -59,6 +64,12 @@ func TestWithAuthAPIKey(t *testing.T) {
 	}
 	if seenActor.Type != "api_key" || seenActor.OrganizationID != "org-123" {
 		t.Fatalf("unexpected actor %#v", seenActor)
+	}
+	if seenPrincipal.OrganizationID != "org-123" || seenPrincipal.Subject != "integration-key" {
+		t.Fatalf("unexpected principal %#v", seenPrincipal)
+	}
+	if err := seenPrincipal.RequireScope("scope:read"); err != nil {
+		t.Fatalf("expected scope to be present: %v", err)
 	}
 }
 
@@ -118,16 +129,22 @@ func TestWithAuthServiceToken(t *testing.T) {
 					ID:             "pipeline",
 					OrganizationID: "org-123",
 				},
+				Scopes: []string{"scope:write"},
 			},
 		},
 	})
 
 	var seenActor Actor
+	var seenPrincipal Principal
 	handler := middleware.WithAuth("scope:write")(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var ok bool
 		seenActor, ok = ActorFromContext(request.Context())
 		if !ok {
 			t.Fatal("expected actor in context")
+		}
+		seenPrincipal, ok = PrincipalFromContext(request.Context())
+		if !ok {
+			t.Fatal("expected principal in context")
 		}
 		writer.WriteHeader(http.StatusAccepted)
 	}))
@@ -142,6 +159,12 @@ func TestWithAuthServiceToken(t *testing.T) {
 	}
 	if seenActor.Type != "service" || seenActor.ID != "pipeline" {
 		t.Fatalf("unexpected actor %#v", seenActor)
+	}
+	if seenPrincipal.Service != "pipeline" || seenPrincipal.OrganizationID != "org-123" {
+		t.Fatalf("unexpected principal %#v", seenPrincipal)
+	}
+	if err := seenPrincipal.RequireScope("scope:write"); err != nil {
+		t.Fatalf("expected scope to be present: %v", err)
 	}
 }
 

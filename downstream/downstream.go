@@ -5,6 +5,7 @@ package downstream
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 
 // FailureMode controls what happens when a downstream call fails.
 type FailureMode int
+
+// FailurePolicy is kept as a source-compatible alias for services that adopted
+// the earlier platform package name before this module exported downstream.
+type FailurePolicy = FailureMode
 
 const (
 	// FailClosed returns the error to the caller. Use for safety-critical
@@ -62,7 +67,16 @@ type Metrics struct {
 }
 
 // New creates a downstream client with the given name and configuration.
-func New(name string, cfg Config) *Client {
+//
+// New accepts both the current shape:
+//
+//	downstream.New("meter", downstream.Config{FailureMode: downstream.FailOpen})
+//
+// and the earlier platform shape:
+//
+//	downstream.New("meter", downstream.FailOpen, downstream.Config{})
+func New(name string, cfgOrPolicy any, configs ...Config) *Client {
+	cfg := normalizeConfig(cfgOrPolicy, configs...)
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -73,6 +87,36 @@ func New(name string, cfg Config) *Client {
 		breaker: cfg.Breaker,
 		logger:  logger,
 		metrics: cfg.Metrics,
+	}
+}
+
+func normalizeConfig(cfgOrPolicy any, configs ...Config) Config {
+	switch value := cfgOrPolicy.(type) {
+	case Config:
+		if len(configs) != 0 {
+			panic(fmt.Sprintf("downstream.New: unexpected %d extra config arguments", len(configs)))
+		}
+		return value
+	case *Config:
+		if len(configs) != 0 {
+			panic(fmt.Sprintf("downstream.New: unexpected %d extra config arguments", len(configs)))
+		}
+		if value == nil {
+			return Config{}
+		}
+		return *value
+	case FailureMode:
+		if len(configs) > 1 {
+			panic(fmt.Sprintf("downstream.New: expected at most one config with failure policy, got %d", len(configs)))
+		}
+		cfg := Config{FailureMode: value}
+		if len(configs) == 1 {
+			cfg = configs[0]
+			cfg.FailureMode = value
+		}
+		return cfg
+	default:
+		panic(fmt.Sprintf("downstream.New: unsupported config argument type %T", cfgOrPolicy))
 	}
 }
 
