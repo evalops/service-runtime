@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+func TestDefaultShutdownTimeout(t *testing.T) {
+	if DefaultShutdownTimeout != 10*time.Second {
+		t.Fatalf("DefaultShutdownTimeout = %s, want 10s", DefaultShutdownTimeout)
+	}
+}
+
 func TestDoRetriesUntilSuccess(t *testing.T) {
 	t.Parallel()
 

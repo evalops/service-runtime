@@ -103,13 +103,14 @@ jobs:
           set -euo pipefail
 
           tmpdir="$(mktemp -d)"
-          trap 'rm -rf "${tmpdir}"' EXIT
+          trap 'chmod -R u+w "${tmpdir}" 2>/dev/null || true; rm -rf "${tmpdir}"' EXIT
 
           export GOMODCACHE="${tmpdir}/modcache"
           export GOCACHE="${tmpdir}/gocache"
-          mkdir -p "${GOMODCACHE}" "${GOCACHE}"
+          workdir="${tmpdir}/work"
+          mkdir -p "${GOMODCACHE}" "${GOCACHE}" "${workdir}"
 
-          cd "${tmpdir}"
+          cd "${workdir}"
           go mod init release-smoke >/dev/null 2>&1
           cat <<'EOF' > main.go
           package main
@@ -121,6 +122,7 @@ jobs:
 
           for attempt in 1 2 3 4 5; do
             if go get "github.com/evalops/service-runtime@${VERSION}"; then
+              go mod tidy
               go build .
               exit 0
             fi
