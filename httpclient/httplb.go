@@ -9,11 +9,16 @@ import (
 )
 
 const (
-	DefaultRequestTimeout      = 30 * time.Second
-	DefaultIdleConnTimeout     = 90 * time.Second
-	DefaultMaxIdleConns        = 64
+	// DefaultRequestTimeout bounds each outbound request through the load-balanced client.
+	DefaultRequestTimeout = 30 * time.Second
+	// DefaultIdleConnTimeout controls how long idle pooled connections are retained.
+	DefaultIdleConnTimeout = 90 * time.Second
+	// DefaultMaxIdleConns caps idle connections across all hosts.
+	DefaultMaxIdleConns = 64
+	// DefaultMaxIdleConnsPerHost caps idle connections retained per host.
 	DefaultMaxIdleConnsPerHost = 16
-	DefaultMaxConnsPerHost     = 32
+	// DefaultMaxConnsPerHost caps concurrent connections to a single host.
+	DefaultMaxConnsPerHost = 32
 )
 
 // LoadBalancedOptions controls EvalOps' default outbound HTTP client.
