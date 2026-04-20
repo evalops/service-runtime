@@ -26,6 +26,16 @@ github.com/antithesishq/antithesis-sdk-go/internal
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
 github.com/beorn7/perks/quantile
+# github.com/bufbuild/httplb v0.4.1
+## explicit; go 1.23.0
+github.com/bufbuild/httplb
+github.com/bufbuild/httplb/attribute
+github.com/bufbuild/httplb/conn
+github.com/bufbuild/httplb/health
+github.com/bufbuild/httplb/internal
+github.com/bufbuild/httplb/internal/conns
+github.com/bufbuild/httplb/picker
+github.com/bufbuild/httplb/resolver
 # github.com/cenkalti/backoff/v5 v5.0.3
 ## explicit; go 1.23
 github.com/cenkalti/backoff/v5
@@ -301,6 +311,7 @@ golang.org/x/net/internal/timeseries
 golang.org/x/net/trace
 # golang.org/x/sync v0.20.0
 ## explicit; go 1.25.0
+golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
 # golang.org/x/sys v0.42.0
 ## explicit; go 1.25.0
