@@ -309,6 +309,40 @@ func TestFailureModeString(t *testing.T) {
 	}
 }
 
+func TestFailurePolicyAliasAndLegacyConstructor(t *testing.T) {
+	policy := downstream.FailurePolicy(downstream.FailOpen)
+	c := downstream.New("meter", policy, downstream.Config{})
+
+	if c.Name() != "meter" {
+		t.Fatalf("expected meter, got %s", c.Name())
+	}
+	if c.Mode() != downstream.FailOpen {
+		t.Fatalf("expected FailOpen, got %s", c.Mode())
+	}
+}
+
+func TestLegacyConstructorPreservesConfig(t *testing.T) {
+	breaker := resilience.NewBreaker(resilience.BreakerConfig{
+		FailureThreshold: 1,
+		ResetTimeout:     time.Hour,
+	})
+	c := downstream.New("governance", downstream.FailClosed, downstream.Config{
+		Breaker: breaker,
+	})
+
+	_, _ = downstream.Call(context.Background(), c, func(_ context.Context) (string, error) {
+		return "", errSimulated
+	})
+
+	_, err := downstream.Call(context.Background(), c, func(_ context.Context) (string, error) {
+		t.Fatal("fn should not be called when breaker is open")
+		return "", nil
+	})
+	if !errors.Is(err, resilience.ErrCircuitOpen) {
+		t.Fatalf("expected ErrCircuitOpen, got: %v", err)
+	}
+}
+
 // --- Nil logger safety ---
 
 func TestNilLoggerDefaultsToSlog(t *testing.T) {

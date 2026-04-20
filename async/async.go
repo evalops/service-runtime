@@ -16,6 +16,52 @@ import (
 // from the originating request so it survives handler return.
 type Task func(ctx context.Context) error
 
+// Runner bounds fire-and-forget work so degraded downstreams cannot create
+// unbounded goroutines under load.
+type Runner struct {
+	sem    chan struct{}
+	logger *slog.Logger
+}
+
+// NewRunner creates a bounded background task runner.
+func NewRunner(maxInFlight int, logger *slog.Logger) *Runner {
+	if maxInFlight <= 0 {
+		maxInFlight = 1
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Runner{sem: make(chan struct{}, maxInFlight), logger: logger}
+}
+
+// TryGo launches task with a context detached from request cancellation when
+// capacity is available. It returns false without launching a goroutine when
+// the runner is full.
+func (r *Runner) TryGo(ctx context.Context, op string, task Task) bool {
+	if r == nil || task == nil {
+		return false
+	}
+	select {
+	case r.sem <- struct{}{}:
+	default:
+		r.logger.Warn("background task rejected: capacity exhausted", "op", op)
+		return false
+	}
+	bgCtx := context.WithoutCancel(ctx)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				r.logger.Error("background task panicked", "op", op, "panic", recovered, "stack", string(debug.Stack()))
+			}
+			<-r.sem
+		}()
+		if err := task(bgCtx); err != nil {
+			r.logger.Warn("background task failed", "op", op, "error", err)
+		}
+	}()
+	return true
+}
+
 // FireAndForget launches task in a background goroutine with a context
 // detached from the parent (via context.WithoutCancel). Errors are logged
 // at WARN level and panics are recovered and logged at ERROR level with the
