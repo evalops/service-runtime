@@ -36,7 +36,7 @@ func PrincipalFromActor(actor Actor, scopes []string) Principal {
 		Scopes:         append([]string(nil), scopes...),
 		IsHuman:        isHumanActorType(actor.Type),
 	}
-	if principal.TokenType == "service" {
+	if strings.EqualFold(principal.TokenType, "service") {
 		principal.Service = principal.Subject
 	}
 	for key, value := range actor.Attributes {

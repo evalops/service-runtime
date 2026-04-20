@@ -2,10 +2,18 @@ package startup
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -67,6 +75,49 @@ func TestRunHTTPServerAppliesHTTPDefenses(t *testing.T) {
 	}
 }
 
+func TestRunHTTPServerUsesConfiguredTLSFilesAndClientCA(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen test server: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	caPath := writeTestCACertificate(t)
+	certPath := t.TempDir() + "/missing-cert.pem"
+	keyPath := t.TempDir() + "/missing-key.pem"
+
+	server := &http.Server{
+		Handler: http.NewServeMux(),
+	}
+
+	err = RunHTTPServer(context.Background(), HTTPServerConfig{
+		ServiceName:     "test-service",
+		Server:          server,
+		Listener:        listener,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		TLSCertFile:     certPath,
+		TLSKeyFile:      keyPath,
+		TLSClientCAFile: caPath,
+	})
+	if err == nil {
+		t.Fatal("RunHTTPServer() error = nil, want missing certificate error")
+	}
+	if !strings.Contains(err.Error(), certPath) {
+		t.Fatalf("RunHTTPServer() error = %v, want cert path %q in error", err, certPath)
+	}
+	if server.TLSConfig == nil {
+		t.Fatal("server.TLSConfig = nil, want client CA configuration")
+	}
+	if server.TLSConfig.ClientAuth != tls.RequireAndVerifyClientCert {
+		t.Fatalf("server.TLSConfig.ClientAuth = %v, want %v", server.TLSConfig.ClientAuth, tls.RequireAndVerifyClientCert)
+	}
+	if server.TLSConfig.ClientCAs == nil {
+		t.Fatal("server.TLSConfig.ClientCAs = nil, want configured cert pool")
+	}
+}
+
 func waitForServer(t *testing.T, addr string, errCh <-chan error) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
@@ -92,4 +143,38 @@ func assertResponseHeader(t *testing.T, header http.Header, key string, want str
 	if got := header.Get(key); got != want {
 		t.Fatalf("%s = %q, want %q", key, got, want)
 	}
+}
+
+func writeTestCACertificate(t *testing.T) string {
+	t.Helper()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA private key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, privateKey.Public(), privateKey)
+	if err != nil {
+		t.Fatalf("create CA certificate: %v", err)
+	}
+
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if caPEM == nil {
+		t.Fatal("encode CA certificate PEM: nil")
+	}
+
+	path := t.TempDir() + "/client-ca.pem"
+	if err := os.WriteFile(path, caPEM, 0o600); err != nil {
+		t.Fatalf("write CA certificate: %v", err)
+	}
+	return path
 }

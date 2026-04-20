@@ -2,6 +2,8 @@ package startup
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -81,21 +83,32 @@ func RunHTTPServer(ctx context.Context, cfg HTTPServerConfig) error {
 
 	cfg.Server.Handler = httpkit.WithBrowserSecurityDefaults(nonNilHTTPHandler(cfg.Server.Handler))
 
+	tlsCertFile := strings.TrimSpace(cfg.TLSCertFile)
+	tlsKeyFile := strings.TrimSpace(cfg.TLSKeyFile)
+	tlsClientCAFile := strings.TrimSpace(cfg.TLSClientCAFile)
+	if tlsCertFile != "" && tlsKeyFile != "" && tlsClientCAFile != "" {
+		tlsConfig, err := serverTLSConfigWithClientCA(cfg.Server.TLSConfig, tlsClientCAFile)
+		if err != nil {
+			return fmt.Errorf("startup tls: %w", err)
+		}
+		cfg.Server.TLSConfig = tlsConfig
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("starting service", "service", serviceName, "addr", addr, "version", strings.TrimSpace(cfg.Version))
 
 		var err error
 		switch {
-		case strings.TrimSpace(cfg.TLSCertFile) != "" && strings.TrimSpace(cfg.TLSKeyFile) != "":
+		case tlsCertFile != "" && tlsKeyFile != "":
 			logger.Info("tls enabled", "service", serviceName)
-			if strings.TrimSpace(cfg.TLSClientCAFile) != "" {
+			if tlsClientCAFile != "" {
 				logger.Info("verified client certificates required", "service", serviceName)
 			}
 			if cfg.Listener != nil {
-				err = cfg.Server.ServeTLS(cfg.Listener, "", "")
+				err = cfg.Server.ServeTLS(cfg.Listener, tlsCertFile, tlsKeyFile)
 			} else {
-				err = cfg.Server.ListenAndServeTLS("", "")
+				err = cfg.Server.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
 			}
 		case cfg.Listener != nil:
 			err = cfg.Server.Serve(cfg.Listener)
@@ -142,4 +155,25 @@ func nonNilHTTPHandler(handler http.Handler) http.Handler {
 		return http.DefaultServeMux
 	}
 	return handler
+}
+
+func serverTLSConfigWithClientCA(base *tls.Config, clientCAFile string) (*tls.Config, error) {
+	caPEM, err := os.ReadFile(clientCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read client ca file %q: %w", clientCAFile, err)
+	}
+
+	clientCAs := x509.NewCertPool()
+	if !clientCAs.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("parse client ca file %q: no certificates found", clientCAFile)
+	}
+
+	if base == nil {
+		base = &tls.Config{}
+	} else {
+		base = base.Clone()
+	}
+	base.ClientAuth = tls.RequireAndVerifyClientCert
+	base.ClientCAs = clientCAs
+	return base, nil
 }

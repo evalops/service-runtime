@@ -168,6 +168,45 @@ func TestWithAuthServiceToken(t *testing.T) {
 	}
 }
 
+func TestWithAuthServiceTokenMixedCaseType(t *testing.T) {
+	t.Parallel()
+
+	middleware := New(Config{
+		TokenVerifier: &stubTokenVerifier{
+			result: VerifiedToken{
+				Actor: Actor{
+					Type:           "Service",
+					ID:             "pipeline",
+					OrganizationID: "org-123",
+				},
+				Scopes: []string{"scope:write"},
+			},
+		},
+	})
+
+	var seenPrincipal Principal
+	handler := middleware.WithAuth("scope:write")(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var ok bool
+		seenPrincipal, ok = PrincipalFromContext(request.Context())
+		if !ok {
+			t.Fatal("expected principal in context")
+		}
+		writer.WriteHeader(http.StatusAccepted)
+	}))
+
+	request := httptest.NewRequest(http.MethodPost, "/", nil)
+	request.Header.Set("Authorization", "Bearer svc-token")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d", http.StatusAccepted, recorder.Code)
+	}
+	if seenPrincipal.Service != "pipeline" {
+		t.Fatalf("expected service principal, got %#v", seenPrincipal)
+	}
+}
+
 func TestWithAuthServiceTokenWithoutVerifier(t *testing.T) {
 	t.Parallel()
 
