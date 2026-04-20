@@ -55,7 +55,7 @@ func TestLoadBalancedClientSendsRequests(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Path; got != "/healthz" {
-			t.Fatalf("path = %q, want /healthz", got)
+			t.Errorf("path = %q, want /healthz", got)
 		}
 		_, _ = fmt.Fprint(w, "ok")
 	}))
