@@ -18,7 +18,6 @@ import (
 
 	identityv1 "github.com/evalops/proto/gen/go/identity/v1"
 	"github.com/evalops/service-runtime/mtls"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -159,7 +158,7 @@ func New(config Config) *Client {
 		httpClient = http.DefaultClient
 	}
 	usesMTLSCert := httpClientUsesMTLSCertificate(httpClient)
-	httpClient = tracedHTTPClient(httpClient)
+	httpClient = mtls.TraceHTTPClient(httpClient)
 	maxSize := config.MaxCacheSize
 	if maxSize <= 0 {
 		maxSize = defaultMaxCacheSize
@@ -175,19 +174,6 @@ func New(config Config) *Client {
 		introspection:    newLRUCache[string, cachedIntrospection](maxSize),
 		serviceTokens:    newLRUCache[serviceTokenCacheKey, cachedServiceToken](maxSize),
 	}
-}
-
-func tracedHTTPClient(client *http.Client) *http.Client {
-	if client == nil {
-		client = http.DefaultClient
-	}
-	cloned := *client
-	baseTransport := cloned.Transport
-	if baseTransport == nil {
-		baseTransport = http.DefaultTransport
-	}
-	cloned.Transport = otelhttp.NewTransport(baseTransport)
-	return &cloned
 }
 
 // NewClient creates a Client that introspects tokens at the given URL.
@@ -422,11 +408,22 @@ func httpClientUsesMTLSCertificate(client *http.Client) bool {
 	if client == nil {
 		return false
 	}
-	transport, ok := client.Transport.(*http.Transport)
-	if !ok || transport == nil {
-		return false
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
 	}
-	return tlsConfigHasClientCertificate(transport.TLSClientConfig)
+	for transport != nil {
+		httpTransport, ok := transport.(*http.Transport)
+		if ok {
+			return tlsConfigHasClientCertificate(httpTransport.TLSClientConfig)
+		}
+		wrapped, ok := transport.(interface{ Unwrap() http.RoundTripper })
+		if !ok {
+			return false
+		}
+		transport = wrapped.Unwrap()
+	}
+	return false
 }
 
 func tlsConfigHasClientCertificate(cfg *tls.Config) bool {
