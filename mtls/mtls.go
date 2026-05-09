@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ClientConfig holds TLS settings for an outbound mTLS client.
@@ -59,15 +61,15 @@ func BuildServerTLSConfig(cfg ServerConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// BuildHTTPClient returns an *http.Client configured with the given mTLS settings,
-// or http.DefaultClient when the config is empty.
+// BuildHTTPClient returns an *http.Client configured with the given mTLS
+// settings and OpenTelemetry HTTP propagation.
 func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 	tlsConfig, err := BuildClientTLSConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 	if tlsConfig == nil {
-		return http.DefaultClient, nil
+		return traceHTTPClient(http.DefaultClient), nil
 	}
 
 	transport, ok := http.DefaultTransport.(*http.Transport)
@@ -76,7 +78,20 @@ func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 	}
 	clone := transport.Clone()
 	clone.TLSClientConfig = tlsConfig
-	return &http.Client{Transport: clone}, nil
+	return traceHTTPClient(&http.Client{Transport: clone}), nil
+}
+
+func traceHTTPClient(client *http.Client) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	cloned := *client
+	transport := cloned.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	cloned.Transport = otelhttp.NewTransport(transport)
+	return &cloned
 }
 
 // BuildClientTLSConfig returns a *tls.Config for an outbound mTLS client, or nil when all fields are empty.
