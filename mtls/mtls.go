@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ClientConfig holds TLS settings for an outbound mTLS client.
@@ -59,15 +61,15 @@ func BuildServerTLSConfig(cfg ServerConfig) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// BuildHTTPClient returns an *http.Client configured with the given mTLS settings,
-// or http.DefaultClient when the config is empty.
+// BuildHTTPClient returns an *http.Client configured with the given mTLS
+// settings and OpenTelemetry HTTP propagation.
 func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 	tlsConfig, err := BuildClientTLSConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 	if tlsConfig == nil {
-		return http.DefaultClient, nil
+		return TraceHTTPClient(http.DefaultClient), nil
 	}
 
 	transport, ok := http.DefaultTransport.(*http.Transport)
@@ -76,7 +78,50 @@ func BuildHTTPClient(cfg ClientConfig) (*http.Client, error) {
 	}
 	clone := transport.Clone()
 	clone.TLSClientConfig = tlsConfig
-	return &http.Client{Transport: clone}, nil
+	return TraceHTTPClient(&http.Client{Transport: clone}), nil
+}
+
+// TraceHTTPClient clones client and wraps its transport with OTel propagation.
+func TraceHTTPClient(client *http.Client) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	cloned := *client
+	transport := cloned.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	cloned.Transport = traceRoundTripper(transport)
+	return &cloned
+}
+
+func traceRoundTripper(transport http.RoundTripper) http.RoundTripper {
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	if _, ok := transport.(*tracedTransport); ok {
+		return transport
+	}
+	if _, ok := transport.(*otelhttp.Transport); ok {
+		return transport
+	}
+	return &tracedTransport{
+		base:   transport,
+		traced: otelhttp.NewTransport(transport),
+	}
+}
+
+type tracedTransport struct {
+	base   http.RoundTripper
+	traced http.RoundTripper
+}
+
+func (t *tracedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return t.traced.RoundTrip(request)
+}
+
+func (t *tracedTransport) Unwrap() http.RoundTripper {
+	return t.base
 }
 
 // BuildClientTLSConfig returns a *tls.Config for an outbound mTLS client, or nil when all fields are empty.

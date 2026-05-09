@@ -1,6 +1,7 @@
 package mtls
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -8,6 +9,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestBuildClientTLSConfigReturnsNilWhenUnset(t *testing.T) {
@@ -39,13 +44,48 @@ func TestBuildServerTLSConfigRequiresCertAndKeyTogether(t *testing.T) {
 	}
 }
 
-func TestBuildHTTPClientReturnsDefaultClientWhenUnset(t *testing.T) {
+func TestBuildHTTPClientPropagatesTraceContextWhenUnset(t *testing.T) {
+	originalProvider := otel.GetTracerProvider()
+	originalPropagator := otel.GetTextMapPropagator()
+	tracerProvider := sdktrace.NewTracerProvider()
+	otel.SetTracerProvider(tracerProvider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		otel.SetTextMapPropagator(originalPropagator)
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+
+	var traceParent string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		traceParent = request.Header.Get("traceparent")
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
 	client, err := BuildHTTPClient(ClientConfig{})
 	if err != nil {
 		t.Fatalf("build http client: %v", err)
 	}
-	if client != http.DefaultClient {
-		t.Fatal("expected default client")
+	if client == http.DefaultClient {
+		t.Fatal("expected traced client, got http.DefaultClient")
+	}
+
+	ctx, span := tracerProvider.Tracer("mtls-test").Start(context.Background(), "root")
+	defer span.End()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("client.Do: %v", err)
+	}
+	response.Body.Close()
+
+	if traceParent == "" {
+		t.Fatal("expected traceparent header")
 	}
 }
 

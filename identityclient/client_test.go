@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -64,6 +65,65 @@ func TestConfigured(t *testing.T) {
 		BootstrapKey:     "   ",
 	}).ServiceTokensConfigured() {
 		t.Fatal("expected whitespace-only bootstrap key to be treated as unset")
+	}
+}
+
+func TestConfiguredDetectsMTLSCertificatesThroughTracedTransport(t *testing.T) {
+	if !New(Config{
+		ServiceTokensURL: "https://identity.internal/v1/service-tokens",
+		HTTPClient: mtls.TraceHTTPClient(&http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{Certificates: []tls.Certificate{{}}},
+			},
+		}),
+	}).ServiceTokensConfigured() {
+		t.Fatal("expected traced mtls-authenticated service tokens to be configured")
+	}
+}
+
+func TestNewDoesNotDoubleWrapTracedHTTPClient(t *testing.T) {
+	originalProvider := otel.GetTracerProvider()
+	originalPropagator := otel.GetTextMapPropagator()
+	recorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(tracerProvider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		otel.SetTextMapPropagator(originalPropagator)
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+
+	httpClient := mtls.TraceHTTPClient(&http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"active":true,"organization_id":"org-123"}`)),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	})
+	client := New(Config{
+		IntrospectURL:  "https://identity.test/v1/tokens/introspect",
+		RequestTimeout: time.Second,
+		HTTPClient:     httpClient,
+	})
+
+	ctx, span := tracerProvider.Tracer("identityclient-test").Start(context.Background(), "root")
+	defer span.End()
+
+	if _, err := client.Introspect(ctx, "write-token"); err != nil {
+		t.Fatalf("introspect: %v", err)
+	}
+
+	httpSpanCount := 0
+	for _, ended := range recorder.Ended() {
+		if ended.Name() == "HTTP POST" {
+			httpSpanCount++
+		}
+	}
+	if httpSpanCount != 1 {
+		t.Fatalf("expected one HTTP client span, got %d", httpSpanCount)
 	}
 }
 

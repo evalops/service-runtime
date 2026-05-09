@@ -20,7 +20,7 @@ jobs:
       - name: Set up Go and run tests
         uses: ./.github/actions/setup-go-service
         with:
-          go-version: "1.26.2"
+          go-version: "1.26.3"
           cache: false
           run-go-test: "true"
           go-test-race: "true"
@@ -40,7 +40,7 @@ jobs:
       - name: Set up Go and run golangci-lint
         uses: ./.github/actions/setup-go-service
         with:
-          go-version: "1.26.2"
+          go-version: "1.26.3"
           cache: false
           run-golangci-lint: "true"
           golangci-lint-args: "--timeout=5m ./..."
@@ -56,7 +56,7 @@ jobs:
       - name: Set up Go and run security scans
         uses: ./.github/actions/setup-go-service
         with:
-          go-version: "1.26.2"
+          go-version: "1.26.3"
           cache: false
           run-gosec: "true"
           run-govulncheck: "true"
