@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Platform source-of-truth issue
+    url: https://github.com/evalops/platform/issues/new/choose
+    about: Open new shared runtime work in evalops/platform.
+  - name: Consolidation wave 2 tracker
+    url: https://github.com/evalops/platform/issues/1768
+    about: Track retirement of evalops/service-runtime and other legacy upstream repositories.

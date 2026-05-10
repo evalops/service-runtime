@@ -1,5 +1,14 @@
 # Service Runtime
 
+> Deprecated standalone upstream.
+>
+> EvalOps runtime source now lives in
+> [`evalops/platform`](https://github.com/evalops/platform) under `pkg/` and
+> service-local `cmd/` packages. Start runtime changes in Platform and reference
+> [`evalops/platform#1768`](https://github.com/evalops/platform/issues/1768)
+> when retiring the old standalone path. This repository is kept temporarily
+> for Go module compatibility, release history, and emergency package repair.
+
 `service-runtime` is the shared Go runtime layer for EvalOps services.
 
 It exists to remove repeated startup/bootstrap code from service repos without
