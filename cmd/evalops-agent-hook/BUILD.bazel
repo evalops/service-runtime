@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "evalops-agent-hook_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/evalops/service-runtime/cmd/evalops-agent-hook",
+    visibility = ["//visibility:private"],
+    deps = ["//agenthook"],
+)
+
+go_binary(
+    name = "evalops-agent-hook",
+    embed = [":evalops-agent-hook_lib"],
+    visibility = ["//visibility:public"],
+)

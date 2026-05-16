@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "rterrors",
+    srcs = [
+        "connect.go",
+        "errors.go",
+        "http.go",
+        "middleware.go",
+    ],
+    importpath = "github.com/evalops/service-runtime/rterrors",
+    visibility = ["//visibility:public"],
+    deps = ["@com_connectrpc_connect//:connect"],
+)
+
+go_test(
+    name = "rterrors_test",
+    srcs = ["errors_test.go"],
+    embed = [":rterrors"],
+    deps = ["@com_connectrpc_connect//:connect"],
+)

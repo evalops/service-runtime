@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "migrate",
+    srcs = ["migrate.go"],
+    importpath = "github.com/evalops/service-runtime/migrate",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_golang_migrate_migrate_v4//:migrate",
+        "@com_github_golang_migrate_migrate_v4//database/postgres",
+        "@com_github_golang_migrate_migrate_v4//source/file",
+        "@com_github_golang_migrate_migrate_v4//source/iofs",
+    ],
+)
+
+go_test(
+    name = "migrate_test",
+    srcs = [
+        "migrate_integration_test.go",
+        "migrate_test.go",
+    ],
+    embed = [":migrate"],
+    deps = [
+        "//testutil",
+        "@com_github_golang_migrate_migrate_v4//:migrate",
+    ],
+)

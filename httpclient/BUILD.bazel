@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "httpclient",
+    srcs = ["httplb.go"],
+    importpath = "github.com/evalops/service-runtime/httpclient",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_bufbuild_httplb//:httplb"],
+)
+
+go_test(
+    name = "httpclient_test",
+    srcs = ["httplb_test.go"],
+    embed = [":httpclient"],
+)

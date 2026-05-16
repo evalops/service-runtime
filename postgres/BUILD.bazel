@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "postgres",
+    srcs = ["open.go"],
+    importpath = "github.com/evalops/service-runtime/postgres",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//migrate",
+        "//startup",
+    ],
+)
+
+go_test(
+    name = "postgres_test",
+    srcs = ["open_test.go"],
+    embed = [":postgres"],
+    deps = [
+        "//migrate",
+        "//startup",
+        "@com_github_data_dog_go_sqlmock//:go-sqlmock",
+    ],
+)

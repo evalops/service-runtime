@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "resilience",
+    srcs = [
+        "breaker.go",
+        "retry.go",
+    ],
+    importpath = "github.com/evalops/service-runtime/resilience",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "resilience_test",
+    srcs = [
+        "breaker_test.go",
+        "retry_test.go",
+    ],
+    embed = [":resilience"],
+)

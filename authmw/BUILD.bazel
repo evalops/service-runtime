@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "authmw",
+    srcs = [
+        "authmw.go",
+        "errors.go",
+        "principal.go",
+    ],
+    importpath = "github.com/evalops/service-runtime/authmw",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//httpkit",
+        "@com_connectrpc_connect//:connect",
+    ],
+)
+
+go_test(
+    name = "authmw_test",
+    srcs = ["authmw_test.go"],
+    embed = [":authmw"],
+    deps = ["//testutil"],
+)

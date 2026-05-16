@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "natscheck",
+    srcs = ["natscheck.go"],
+    importpath = "github.com/evalops/service-runtime/health/natscheck",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//health",
+        "@com_github_nats_io_nats_go//:nats_go",
+    ],
+)
+
+go_test(
+    name = "natscheck_test",
+    srcs = ["natscheck_test.go"],
+    deps = [
+        ":natscheck",
+        "@com_github_nats_io_nats_go//:nats_go",
+    ],
+)

@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "featureflags",
+    srcs = ["file_store.go"],
+    importpath = "github.com/evalops/service-runtime/featureflags",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_evalops_proto//gen/go/config/v1:config",
+        "@org_golang_google_protobuf//encoding/protojson",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "featureflags_test",
+    srcs = ["file_store_test.go"],
+    embed = [":featureflags"],
+    deps = [
+        "@com_github_evalops_proto//gen/go/config/v1:config",
+        "@org_golang_google_protobuf//encoding/protojson",
+    ],
+)

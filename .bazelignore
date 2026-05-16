@@ -1,0 +1,10 @@
+.git
+.local
+.tools
+.worktrees
+bazel-bin
+bazel-out
+bazel-service-runtime
+bazel-testlogs
+dist
+vendor

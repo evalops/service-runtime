@@ -1,0 +1,31 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "testutil",
+    srcs = [
+        "auth.go",
+        "context.go",
+        "http.go",
+        "nats.go",
+        "postgres.go",
+    ],
+    importpath = "github.com/evalops/service-runtime/testutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_jackc_pgx_v5//:pgx",
+        "@com_github_jackc_pgx_v5//pgxpool",
+        "@com_github_jackc_pgx_v5//stdlib",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_server_v2//server",
+    ],
+)
+
+go_test(
+    name = "testutil_test",
+    srcs = [
+        "nats_test.go",
+        "testutil_test.go",
+    ],
+    embed = [":testutil"],
+    deps = ["@com_github_nats_io_nats_go//jetstream"],
+)

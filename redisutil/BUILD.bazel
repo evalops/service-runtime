@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "redisutil",
+    srcs = ["open.go"],
+    importpath = "github.com/evalops/service-runtime/redisutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//startup",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)
+
+go_test(
+    name = "redisutil_test",
+    srcs = ["open_test.go"],
+    embed = [":redisutil"],
+    deps = [
+        "//startup",
+        "@com_github_alicebob_miniredis_v2//:miniredis",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)
