@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "async",
+    srcs = ["async.go"],
+    importpath = "github.com/evalops/service-runtime/async",
+    visibility = ["//visibility:public"],
+    deps = ["@org_golang_google_protobuf//proto"],
+)
+
+go_test(
+    name = "async_test",
+    srcs = ["async_test.go"],
+    deps = [
+        ":async",
+        "@com_github_evalops_proto//gen/go/approvals/v1:approvals",
+    ],
+)

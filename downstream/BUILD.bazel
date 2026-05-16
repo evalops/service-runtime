@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "downstream",
+    srcs = ["downstream.go"],
+    importpath = "github.com/evalops/service-runtime/downstream",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//resilience",
+        "@com_github_prometheus_client_golang//prometheus",
+    ],
+)
+
+go_test(
+    name = "downstream_test",
+    srcs = ["downstream_test.go"],
+    deps = [
+        ":downstream",
+        "//resilience",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_model//go",
+    ],
+)

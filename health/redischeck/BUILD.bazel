@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "redischeck",
+    srcs = ["redischeck.go"],
+    importpath = "github.com/evalops/service-runtime/health/redischeck",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//health",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)
+
+go_test(
+    name = "redischeck_test",
+    srcs = ["redischeck_test.go"],
+    deps = [
+        ":redischeck",
+        "@com_github_alicebob_miniredis_v2//:miniredis",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)

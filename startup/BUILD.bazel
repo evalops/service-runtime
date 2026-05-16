@@ -1,0 +1,39 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "startup",
+    srcs = [
+        "defaults.go",
+        "http.go",
+        "lifecycle.go",
+        "retry.go",
+        "tracing.go",
+    ],
+    importpath = "github.com/evalops/service-runtime/startup",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//httpkit",
+        "@io_opentelemetry_go_otel//:otel",
+        "@io_opentelemetry_go_otel//propagation",
+        "@io_opentelemetry_go_otel//semconv/v1.40.0:v1_40_0",
+        "@io_opentelemetry_go_otel_exporters_otlp_otlptrace_otlptracehttp//:otlptracehttp",
+        "@io_opentelemetry_go_otel_sdk//resource",
+        "@io_opentelemetry_go_otel_sdk//trace",
+    ],
+)
+
+go_test(
+    name = "startup_test",
+    srcs = [
+        "http_test.go",
+        "retry_test.go",
+        "tracing_test.go",
+    ],
+    embed = [":startup"],
+    deps = [
+        "@io_opentelemetry_go_otel//:otel",
+        "@io_opentelemetry_go_otel//propagation",
+        "@io_opentelemetry_go_otel_sdk//trace",
+        "@io_opentelemetry_go_otel_trace//noop",
+    ],
+)

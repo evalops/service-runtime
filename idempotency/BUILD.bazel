@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "idempotency",
+    srcs = ["idempotency.go"],
+    importpath = "github.com/evalops/service-runtime/idempotency",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//authmw",
+        "//httpkit",
+    ],
+)
+
+go_test(
+    name = "idempotency_test",
+    srcs = ["idempotency_test.go"],
+    embed = [":idempotency"],
+    deps = [
+        "//authmw",
+        "//testutil",
+        "@com_github_data_dog_go_sqlmock//:go-sqlmock",
+    ],
+)

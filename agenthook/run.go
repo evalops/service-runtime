@@ -12,9 +12,13 @@ import (
 
 	"connectrpc.com/connect"
 	approvalsv1 "github.com/evalops/proto/gen/go/approvals/v1"
-	"github.com/evalops/proto/gen/go/approvals/v1/approvalsv1connect"
 	governancev1 "github.com/evalops/proto/gen/go/governance/v1"
-	"github.com/evalops/proto/gen/go/governance/v1/governancev1connect"
+)
+
+const (
+	governanceEvaluateActionProcedure = "/governance.v1.GovernanceService/EvaluateAction"
+	approvalRequestApprovalProcedure  = "/approvals.v1.ApprovalService/RequestApproval"
+	approvalGetApprovalProcedure      = "/approvals.v1.ApprovalService/GetApproval"
 )
 
 // GovernanceClient captures the governance RPC used by the hook runtime.
@@ -48,13 +52,58 @@ func NewRunner(cfg Config) (*Runner, error) {
 
 	runner := &Runner{
 		Config:     cfg,
-		Governance: governancev1connect.NewGovernanceServiceClient(httpClient, cfg.GovernanceURL),
+		Governance: newConnectGovernanceClient(httpClient, cfg.GovernanceURL),
 		Sleep:      sleepWithContext,
 	}
 	if strings.TrimSpace(cfg.ApprovalsURL) != "" {
-		runner.Approvals = approvalsv1connect.NewApprovalServiceClient(httpClient, cfg.ApprovalsURL)
+		runner.Approvals = newConnectApprovalClient(httpClient, cfg.ApprovalsURL)
 	}
 	return runner, nil
+}
+
+type connectGovernanceClient struct {
+	evaluateAction *connect.Client[governancev1.EvaluateActionRequest, governancev1.EvaluateActionResponse]
+}
+
+func newConnectGovernanceClient(httpClient connect.HTTPClient, baseURL string) GovernanceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &connectGovernanceClient{
+		evaluateAction: connect.NewClient[governancev1.EvaluateActionRequest, governancev1.EvaluateActionResponse](
+			httpClient,
+			baseURL+governanceEvaluateActionProcedure,
+		),
+	}
+}
+
+func (client *connectGovernanceClient) EvaluateAction(ctx context.Context, request *connect.Request[governancev1.EvaluateActionRequest]) (*connect.Response[governancev1.EvaluateActionResponse], error) {
+	return client.evaluateAction.CallUnary(ctx, request)
+}
+
+type connectApprovalClient struct {
+	requestApproval *connect.Client[approvalsv1.RequestApprovalRequest, approvalsv1.RequestApprovalResponse]
+	getApproval     *connect.Client[approvalsv1.GetApprovalRequest, approvalsv1.GetApprovalResponse]
+}
+
+func newConnectApprovalClient(httpClient connect.HTTPClient, baseURL string) ApprovalClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &connectApprovalClient{
+		requestApproval: connect.NewClient[approvalsv1.RequestApprovalRequest, approvalsv1.RequestApprovalResponse](
+			httpClient,
+			baseURL+approvalRequestApprovalProcedure,
+		),
+		getApproval: connect.NewClient[approvalsv1.GetApprovalRequest, approvalsv1.GetApprovalResponse](
+			httpClient,
+			baseURL+approvalGetApprovalProcedure,
+		),
+	}
+}
+
+func (client *connectApprovalClient) RequestApproval(ctx context.Context, request *connect.Request[approvalsv1.RequestApprovalRequest]) (*connect.Response[approvalsv1.RequestApprovalResponse], error) {
+	return client.requestApproval.CallUnary(ctx, request)
+}
+
+func (client *connectApprovalClient) GetApproval(ctx context.Context, request *connect.Request[approvalsv1.GetApprovalRequest]) (*connect.Response[approvalsv1.GetApprovalResponse], error) {
+	return client.getApproval.CallUnary(ctx, request)
 }
 
 // Execute runs the CLI entrypoint and returns the process exit code.

@@ -1,0 +1,32 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "agenthook",
+    srcs = [
+        "config.go",
+        "hook.go",
+        "run.go",
+    ],
+    importpath = "github.com/evalops/service-runtime/agenthook",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mtls",
+        "@com_connectrpc_connect//:connect",
+        "@com_github_evalops_proto//gen/go/approvals/v1:approvals",
+        "@com_github_evalops_proto//gen/go/governance/v1:governance",
+    ],
+)
+
+go_test(
+    name = "agenthook_test",
+    srcs = [
+        "config_test.go",
+        "run_test.go",
+    ],
+    embed = [":agenthook"],
+    deps = [
+        "@com_connectrpc_connect//:connect",
+        "@com_github_evalops_proto//gen/go/approvals/v1:approvals",
+        "@com_github_evalops_proto//gen/go/governance/v1:governance",
+    ],
+)

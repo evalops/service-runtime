@@ -1,0 +1,40 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "observability",
+    srcs = [
+        "connectotel.go",
+        "dbstats.go",
+        "labels.go",
+        "logging.go",
+        "metrics.go",
+        "redishook.go",
+        "redisstats.go",
+        "wide_event.go",
+    ],
+    importpath = "github.com/evalops/service-runtime/observability",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//httpkit",
+        "@com_connectrpc_connect//:connect",
+        "@com_connectrpc_otelconnect//:otelconnect",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promhttp",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)
+
+go_test(
+    name = "observability_test",
+    srcs = [
+        "labels_test.go",
+        "observability_test.go",
+    ],
+    embed = [":observability"],
+    deps = [
+        "@com_github_go_chi_chi_v5//:chi",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_model//go",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)

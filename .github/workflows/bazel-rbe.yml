@@ -1,0 +1,53 @@
+name: Bazel RBE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .bazelignore
+      - .bazelrc
+      - .bazelversion
+      - .github/workflows/bazel-rbe.yml
+      - BUILD.bazel
+      - MODULE.bazel
+      - MODULE.bazel.lock
+      - bazel/**
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - Makefile
+      - scripts/run-bazel-rbe.sh
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' || vars.BAZEL_RBE_ENABLED == 'true'
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - evalops-service-runtime-rbe
+    timeout-minutes: 20
+    env:
+      BAZEL_RBE_USE_EXISTING_TUNNEL: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-go-service
+        with:
+          go-version: "1.26.3"
+          cache: false
+          download: false
+      - name: Install Bazel tools
+        env:
+          GOFLAGS: -mod=mod
+        run: |
+          go install github.com/bazelbuild/bazelisk@latest
+          go install github.com/bazelbuild/buildtools/buildifier@latest
+      - name: Verify generated Bazel graph
+        run: make bazel-check
+      - name: Run Buildfarm smoke tests
+        run: make bazel-rbe-smoke

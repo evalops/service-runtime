@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "pgxpoolutil",
+    srcs = ["open.go"],
+    importpath = "github.com/evalops/service-runtime/pgxpoolutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//startup",
+        "@com_github_jackc_pgx_v5//pgxpool",
+    ],
+)
+
+go_test(
+    name = "pgxpoolutil_test",
+    srcs = ["open_test.go"],
+    embed = [":pgxpoolutil"],
+    deps = [
+        "//startup",
+        "@com_github_jackc_pgx_v5//pgxpool",
+    ],
+)
