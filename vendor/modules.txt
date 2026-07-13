@@ -48,11 +48,9 @@ github.com/dgryski/go-rendezvous
 # github.com/evalops/proto v0.0.0-20260414193513-3db7075bd55b
 ## explicit; go 1.23.0
 github.com/evalops/proto/gen/go/approvals/v1
-github.com/evalops/proto/gen/go/approvals/v1/approvalsv1connect
 github.com/evalops/proto/gen/go/config/v1
 github.com/evalops/proto/gen/go/events/v1
 github.com/evalops/proto/gen/go/governance/v1
-github.com/evalops/proto/gen/go/governance/v1/governancev1connect
 github.com/evalops/proto/gen/go/identity/v1
 # github.com/felixge/httpsnoop v1.0.4
 ## explicit; go 1.13
@@ -96,7 +94,7 @@ github.com/jackc/pgpassfile
 # github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761
 ## explicit; go 1.14
 github.com/jackc/pgservicefile
-# github.com/jackc/pgx/v5 v5.9.1
+# github.com/jackc/pgx/v5 v5.9.2
 ## explicit; go 1.25.0
 github.com/jackc/pgx/v5
 github.com/jackc/pgx/v5/internal/iobufpool
