@@ -451,6 +451,12 @@ func TestResolveServiceTokenIssuesAndCachesByScopeSet(t *testing.T) {
 	var identityCalls atomic.Int32
 	identityServer := testutil.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identityCalls.Add(1)
+		if got := r.Header.Get("Authorization"); got != "Bearer identity-bootstrap-key" {
+			t.Fatalf("expected bearer bootstrap authorization, got %q", got)
+		}
+		if got := r.Header.Get("X-Identity-Bootstrap-Key"); got != "" {
+			t.Fatalf("expected legacy bootstrap header to be absent, got %q", got)
+		}
 		testutil.WriteJSON(t, w, http.StatusCreated, map[string]any{
 			"token":      "identity-service-token",
 			"token_type": "Bearer",
@@ -553,6 +559,9 @@ func TestIssueServiceTokenAllowsMTLSWithoutBootstrapKey(t *testing.T) {
 	t.Parallel()
 
 	identityServer := testutil.NewTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("expected no authorization header without a bootstrap key, got %q", got)
+		}
 		if got := r.Header.Get("X-Identity-Bootstrap-Key"); got != "" {
 			t.Fatalf("expected no bootstrap key header, got %q", got)
 		}
