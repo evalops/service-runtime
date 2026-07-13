@@ -327,7 +327,7 @@ func (c *Client) IssueServiceToken(
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if strings.TrimSpace(c.bootstrapKey) != "" {
-		request.Header.Set("X-Identity-Bootstrap-Key", c.bootstrapKey)
+		request.Header.Set("Authorization", "Bearer "+c.bootstrapKey)
 	}
 
 	response, err := c.httpClient.Do(request)
